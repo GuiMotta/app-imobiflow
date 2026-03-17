@@ -47,6 +47,25 @@ def wa_button(texto: str, label: str = "📲 Compartilhar no WhatsApp"):
         unsafe_allow_html=True
     )
 
+def chart_actions(fig, filename: str, wa_texto: str, wa_label: str = "📲 Compartilhar no WhatsApp"):
+    """Renderiza [Baixar PNG] + [WhatsApp] lado a lado abaixo de cada gráfico."""
+    try:
+        img_bytes = fig.to_image(format="png", width=900, height=480, scale=2)
+        col_dl, col_wa, _ = st.columns([1.4, 2, 4])
+        with col_dl:
+            st.download_button(
+                label="📥 Baixar imagem",
+                data=img_bytes,
+                file_name=f"{filename}.png",
+                mime="image/png",
+                use_container_width=True,
+            )
+        with col_wa:
+            wa_button(wa_texto, wa_label)
+    except Exception:
+        # Fallback caso kaleido não esteja disponível: só WhatsApp texto
+        wa_button(wa_texto, wa_label)
+
 # ── Databricks SDK ────────────────────────────────────────────────────────────
 @st.cache_resource
 def get_client():
@@ -191,7 +210,7 @@ with col1:
     fig.update_traces(textposition="outside")
     fig.update_layout(showlegend=False, coloraxis_showscale=False,
                       yaxis=dict(autorange="reversed"), height=420)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fig_preco_bairro")
     _top5 = avg.head(5)
     _txt = (
         f"💵 *Preço Médio por Bairro — Top 5*\n📍 {filtro_label}\n\n"
@@ -199,7 +218,7 @@ with col1:
                     for i, r in _top5.iterrows())
         + "\n\n📊 ImobiFlow Dashboard"
     )
-    wa_button(_txt)
+    chart_actions(fig, "preco_por_bairro", _txt)
 
 with col2:
     st.subheader("📊 Distribuição de Preços")
@@ -207,7 +226,7 @@ with col2:
                        color_discrete_sequence=["#4C72B0"],
                        labels={"preco": "Preço (R$)", "count": "Imóveis"})
     fig.update_layout(height=420, showlegend=False, bargap=0.05)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fig_dist_preco")
     _p25 = dff["preco"].quantile(0.25)
     _p75 = dff["preco"].quantile(0.75)
     _txt = (
@@ -219,7 +238,7 @@ with col2:
         f"💰 Máximo: R$ {dff['preco'].max():,.0f}\n\n"
         f"📊 ImobiFlow Dashboard"
     )
-    wa_button(_txt)
+    chart_actions(fig, "distribuicao_precos", _txt)
 
 # ── Linha 2 ───────────────────────────────────────────────────────────────────
 col3, col4 = st.columns(2)
@@ -231,7 +250,7 @@ with col3:
                      labels={"area_util": "Área Útil (m²)", "preco": "Preço (R$)"},
                      opacity=0.7)
     fig.update_layout(height=380, showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fig_area_preco")
     _txt = (
         f"📐 *Área Útil × Preço — {filtro_label}*\n\n"
         f"📐 Área mínima: {dff['area_util'].min():,.0f} m²\n"
@@ -239,7 +258,7 @@ with col3:
         f"📐 Área máxima: {dff['area_util'].max():,.0f} m²\n\n"
         f"📊 ImobiFlow Dashboard"
     )
-    wa_button(_txt)
+    chart_actions(fig, "area_vs_preco", _txt)
 
 with col4:
     st.subheader("🛏️ Imóveis por Nº de Quartos")
@@ -251,14 +270,14 @@ with col4:
                  labels={"quartos": "Quartos", "quantidade": "Qtd."})
     fig.update_traces(textposition="outside")
     fig.update_layout(height=380, showlegend=False, coloraxis_showscale=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fig_quartos")
     _txt = (
         f"🛏️ *Imóveis por Nº de Quartos — {filtro_label}*\n\n"
         + "\n".join(f"  {int(r['quartos'])} quartos: {int(r['quantidade'])} imóveis"
                     for _, r in qt.iterrows())
         + "\n\n📊 ImobiFlow Dashboard"
     )
-    wa_button(_txt)
+    chart_actions(fig, "imoveis_por_quartos", _txt)
 
 # ── Linha 3 ───────────────────────────────────────────────────────────────────
 col5, col6 = st.columns(2)
@@ -273,7 +292,7 @@ with col5:
     fig.update_traces(textposition="outside")
     fig.update_layout(showlegend=False, coloraxis_showscale=False,
                       yaxis=dict(autorange="reversed"), height=420)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fig_m2_bairro")
     _top5_m2 = avg_m2.head(5)
     _txt = (
         f"🏷️ *R$/m² Médio por Bairro — Top 5*\n📍 {filtro_label}\n\n"
@@ -281,7 +300,7 @@ with col5:
                     for i, r in _top5_m2.iterrows())
         + "\n\n📊 ImobiFlow Dashboard"
     )
-    wa_button(_txt)
+    chart_actions(fig, "rpm2_por_bairro", _txt)
 
 with col6:
     st.subheader("📦 Box Plot de Preço por Quartos")
@@ -291,7 +310,7 @@ with col6:
                  labels={"quartos": "Quartos", "preco": "Preço (R$)"},
                  category_orders={"quartos": sorted(top_q)})
     fig.update_layout(height=420, showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fig_boxplot")
     _medians = (dff[dff["quartos"].isin(top_q)]
                 .groupby("quartos")["preco"].median()
                 .sort_index())
@@ -301,7 +320,7 @@ with col6:
                     for q, v in _medians.items())
         + "\n\n📊 ImobiFlow Dashboard"
     )
-    wa_button(_txt)
+    chart_actions(fig, "boxplot_preco_quartos", _txt)
 
 # ── Mapa ──────────────────────────────────────────────────────────────────────
 df_map = dff.dropna(subset=["lat", "lon"]).copy()
@@ -320,7 +339,7 @@ if not df_map.empty:
                             zoom=10.5, height=520, mapbox_style="carto-positron",
                             labels={"preco": "Preço (R$)"})
     fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, use_container_width=True, key="fig_mapa")
     _txt = (
         f"🗺️ *Mapa de Imóveis — {filtro_label}*\n\n"
         f"📍 {len(df_map)} imóveis mapeados no Distrito Federal\n"
@@ -328,7 +347,7 @@ if not df_map.empty:
         f"🏷️ R$/m² médio: R$ {df_map['preco_m2'].mean():,.0f}\n\n"
         f"📊 ImobiFlow Dashboard"
     )
-    wa_button(_txt, "📲 Compartilhar dados do mapa no WhatsApp")
+    chart_actions(fig, "mapa_imoveis", _txt, "📲 Compartilhar dados do mapa no WhatsApp")
 
 # ── Tabela Detalhada ───────────────────────────────────────────────────────────
 st.divider()
