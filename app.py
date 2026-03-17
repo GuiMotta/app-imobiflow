@@ -131,19 +131,22 @@ if df.empty:
 st.sidebar.image("https://img.icons8.com/color/96/home--v1.png", width=60)
 st.sidebar.title("🔍 Filtros")
 
-bairros_sel = st.sidebar.multiselect("Bairro",  sorted(df["bairro"].dropna().unique()))
-preco_min_v = int(df["preco"].min())
-preco_max_v = int(df["preco"].max())
-preco_range = st.sidebar.slider("Preço (R$)", preco_min_v, preco_max_v,
-                                 (preco_min_v, preco_max_v), step=10_000, format="R$ %d")
-quartos_sel = st.sidebar.multiselect("Quartos", sorted(df["quartos"].dropna().astype(int).unique()))
-status_sel  = st.sidebar.multiselect("Status",  sorted(df["status"].dropna().unique()))
+bairros_sel   = st.sidebar.multiselect("Bairro",  sorted(df["bairro"].dropna().unique()))
+preco_min_v   = int(df["preco"].min())
+preco_max_v   = int(df["preco"].max())
+preco_range   = st.sidebar.slider("Preço (R$)", preco_min_v, preco_max_v,
+                                   (preco_min_v, preco_max_v), step=10_000, format="R$ %d")
+quartos_sel   = st.sidebar.multiselect("Quartos", sorted(df["quartos"].dropna().astype(int).unique()))
+status_sel    = st.sidebar.multiselect("Status",  sorted(df["status"].dropna().unique()))
+corretor_opts = sorted(df["corretor"].dropna().unique())
+corretor_sel  = st.sidebar.multiselect("Corretor / Imobiliária", corretor_opts)
 
 # ── Filtros aplicados ─────────────────────────────────────────────────────────
 dff = df.copy()
-if bairros_sel: dff = dff[dff["bairro"].isin(bairros_sel)]
-if quartos_sel: dff = dff[dff["quartos"].isin(quartos_sel)]
-if status_sel:  dff = dff[dff["status"].isin(status_sel)]
+if bairros_sel:  dff = dff[dff["bairro"].isin(bairros_sel)]
+if quartos_sel:  dff = dff[dff["quartos"].isin(quartos_sel)]
+if status_sel:   dff = dff[dff["status"].isin(status_sel)]
+if corretor_sel: dff = dff[dff["corretor"].isin(corretor_sel)]
 dff = dff[(dff["preco"] >= preco_range[0]) & (dff["preco"] <= preco_range[1])]
 
 filtro_label = ", ".join(bairros_sel) if bairros_sel else "Todos os bairros"
