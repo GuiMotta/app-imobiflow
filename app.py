@@ -204,9 +204,10 @@ with col6:
     st.plotly_chart(fig, use_container_width=True)
 
 # ── Mapa ──────────────────────────────────────────────────────────────────────
-df_map = dff.dropna(subset=["lat", "lon"])
+df_map = dff.dropna(subset=["lat", "lon"]).copy()
 df_map = df_map[(df_map["lat"].between(-16.5, -15.4)) &
                 (df_map["lon"].between(-48.5, -47.2))]
+df_map["area_util"] = df_map["area_util"].fillna(0).clip(lower=0)
 if not df_map.empty:
     st.divider()
     st.subheader("🗺️ Mapa dos Imóveis")
