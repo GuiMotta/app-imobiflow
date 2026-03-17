@@ -160,6 +160,10 @@ preco_max_v   = int(df["preco"].max())
 preco_range   = st.sidebar.slider("Preço (R$)", preco_min_v, preco_max_v,
                                    (preco_min_v, preco_max_v), step=10_000, format="R$ %d")
 quartos_sel   = st.sidebar.multiselect("Quartos", sorted(df["quartos"].dropna().astype(int).unique()))
+area_min_v    = int(df["area_util"].dropna().min())
+area_max_v    = int(df["area_util"].dropna().max())
+area_range    = st.sidebar.slider("Área (m²)", area_min_v, area_max_v,
+                                   (area_min_v, area_max_v), step=5, format="%d m²")
 status_sel    = st.sidebar.multiselect("Status",  sorted(df["status"].dropna().unique()))
 corretor_opts = sorted(df["corretor"].dropna().unique())
 corretor_sel  = st.sidebar.multiselect("Corretor / Imobiliária", corretor_opts)
@@ -171,6 +175,8 @@ if quartos_sel:  dff = dff[dff["quartos"].isin(quartos_sel)]
 if status_sel:   dff = dff[dff["status"].isin(status_sel)]
 if corretor_sel: dff = dff[dff["corretor"].isin(corretor_sel)]
 dff = dff[(dff["preco"] >= preco_range[0]) & (dff["preco"] <= preco_range[1])]
+# Área: inclui imóveis sem área cadastrada (NaN) + os que estão no range
+dff = dff[dff["area_util"].isna() | dff["area_util"].between(area_range[0], area_range[1])]
 
 filtro_label = ", ".join(bairros_sel) if bairros_sel else "Todos os bairros"
 
