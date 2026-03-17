@@ -362,7 +362,15 @@ cols_tab = [c for c in ["bairro", "preco", "area_util", "preco_m2",
                          "quartos", "banheiros", "endereco", "corretor", "url"]
             if c in dff.columns]
 
-df_tab = dff[cols_tab].rename(columns={
+df_tab = dff[cols_tab].copy()
+# Preenche NaN nos numéricos para evitar o '!' de formatação na grid
+df_tab["preco"]     = df_tab["preco"].fillna(0)
+df_tab["area_util"] = df_tab["area_util"].fillna(0)
+df_tab["preco_m2"]  = df_tab["preco_m2"].fillna(0)
+df_tab["quartos"]   = df_tab["quartos"].fillna(0)
+df_tab["banheiros"] = df_tab["banheiros"].fillna(0)
+
+df_tab = df_tab.rename(columns={
     "bairro":    "Bairro",
     "preco":     "Preço (R$)",
     "area_util": "Área (m²)",
