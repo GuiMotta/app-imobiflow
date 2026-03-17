@@ -107,6 +107,8 @@ def carregar_dados():
             status,
             corretor_imobiliaria                                AS corretor,
             endereco_site                                       AS endereco,
+            titulo_vitrine,
+            descricao,
             url,
             CAST(coordenadas_oficiais.lat AS DOUBLE)            AS lat,
             CAST(coordenadas_oficiais.lon AS DOUBLE)            AS lon,
@@ -142,6 +144,17 @@ def carregar_dados():
                 "condominio", "iptu", "lat", "lon", "preco_m2"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
+
+    # Tipo de imóvel extraído da URL
+    def detectar_tipo(url):
+        u = str(url).lower()
+        if any(k in u for k in ("apartamento", "/apto", "cobertura", "flat")):
+            return "Apartamento"
+        if any(k in u for k in ("casa-", "/sobrado", "townhouse", "geminado")):
+            return "Casa"
+        return "Outro"
+
+    df["tipo_imovel"] = df["url"].apply(detectar_tipo)
     return df
 
 df = carregar_dados()
@@ -422,6 +435,130 @@ if not _melhores.empty:
         f"📊 ImobiFlow Dashboard"
     )
     wa_button(_txt_tab, "📲 Compartilhar melhores ofertas no WhatsApp")
+
+# ── Oportunidade de Captação ───────────────────────────────────────────────────
+import re
+
+# Regex para detectar Bloco (apartamentos) e Conjunto (casas) nos campos de texto
+_RE_BLOCO    = re.compile(r'\b(bl\.?|bloco)\s*[a-z0-9]+', re.IGNORECASE)
+_RE_CONJUNTO = re.compile(r'\b(conj\.?|conjunto)\s*[0-9a-z]+', re.IGNORECASE)
+
+def _match_campos(row, regex):
+    """Verifica se o regex bate em qualquer um dos campos de texto relevantes."""
+    for campo in ("titulo_vitrine", "descricao", "endereco"):
+        val = row.get(campo) or ""
+        if regex.search(str(val)):
+            return True
+    return False
+
+def _extrair_referencia(row, regex):
+    """Extrai o trecho que deu match (bloco / conjunto) para exibir na grid."""
+    for campo in ("endereco", "titulo_vitrine", "descricao"):
+        val = row.get(campo) or ""
+        m = regex.search(str(val))
+        if m:
+            # Retorna até 30 chars a partir do match para dar contexto
+            start = m.start()
+            return str(val)[max(0, start - 5):start + 30].strip()
+    return ""
+
+# Aplica sobre o df filtrado (respeita filtros da sidebar)
+df_capt = dff.copy()
+
+mask_apto = (df_capt["tipo_imovel"] == "Apartamento") & \
+            df_capt.apply(lambda r: _match_campos(r, _RE_BLOCO), axis=1)
+mask_casa = (df_capt["tipo_imovel"] == "Casa") & \
+            df_capt.apply(lambda r: _match_campos(r, _RE_CONJUNTO), axis=1)
+
+df_apto_capt = df_capt[mask_apto].copy()
+df_casa_capt = df_capt[mask_casa].copy()
+
+df_apto_capt["Bloco"] = df_apto_capt.apply(
+    lambda r: _extrair_referencia(r, _RE_BLOCO), axis=1)
+df_casa_capt["Conjunto"] = df_casa_capt.apply(
+    lambda r: _extrair_referencia(r, _RE_CONJUNTO), axis=1)
+
+st.divider()
+st.subheader("🎯 Oportunidade de Captação")
+st.caption(
+    "Imóveis com **endereço completo** identificado (Bloco para aptos / Conjunto para casas) — "
+    "ideais para abordagem direta de captação."
+)
+
+_tab_apto, _tab_casa = st.tabs([
+    f"🏢 Apartamentos ({len(df_apto_capt)})",
+    f"🏠 Casas ({len(df_casa_capt)})",
+])
+
+# Colunas base para as grids
+_COLS_CAPT = ["bairro", "preco", "area_util", "preco_m2",
+              "quartos", "banheiros", "endereco", "corretor", "url"]
+
+def _montar_grid_capt(df_raw, col_extra: str):
+    """Monta e exibe a grid de captação com a coluna de referência (Bloco ou Conjunto)."""
+    if df_raw.empty:
+        st.info("Nenhum imóvel encontrado com os filtros atuais.")
+        return
+
+    cols = [c for c in _COLS_CAPT if c in df_raw.columns]
+    df_g = df_raw[cols + [col_extra]].copy()
+
+    # Formata valores
+    df_g["preco"]     = df_g["preco"].apply(fmt_moeda)
+    df_g["preco_m2"]  = df_g["preco_m2"].apply(fmt_moeda)
+    df_g["area_util"] = df_g["area_util"].apply(fmt_area)
+    df_g["quartos"]   = df_g["quartos"].apply(fmt_int)
+    df_g["banheiros"] = df_g["banheiros"].apply(fmt_int)
+
+    df_g = df_g.rename(columns={
+        "bairro":    "Bairro",
+        "preco":     "Preço (R$)",
+        "area_util": "Área (m²)",
+        "preco_m2":  "R$/m²",
+        "quartos":   "Quartos",
+        "banheiros": "Banheiros",
+        "endereco":  "Endereço",
+        "corretor":  "Corretor/Imobiliária",
+        "url":       "🔗 Ver anúncio",
+    })
+
+    # Move a coluna de referência para o início
+    cols_ordem = [col_extra, "Bairro", "Endereço", "Preço (R$)", "R$/m²",
+                  "Área (m²)", "Quartos", "Banheiros", "Corretor/Imobiliária", "🔗 Ver anúncio"]
+    cols_ordem = [c for c in cols_ordem if c in df_g.columns]
+    df_g = df_g[cols_ordem]
+
+    st.dataframe(
+        df_g,
+        use_container_width=True,
+        hide_index=True,
+        height=420,
+        column_config={
+            "🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir"),
+        },
+    )
+
+    # Botão WhatsApp com top 5
+    _top5 = df_raw.dropna(subset=["preco_m2"]).sort_values("preco_m2").head(5)
+    if not _top5.empty:
+        _ref_col = col_extra
+        _linhas = "\n".join(
+            f"{i+1}. {r['bairro']} | {r.get(_ref_col, '')} | "
+            f"R$ {r['preco']:,.0f} | {r['url']}"
+            for i, (_, r) in enumerate(_top5.iterrows())
+        )
+        _tipo_label = "Apartamentos" if col_extra == "Bloco" else "Casas"
+        _txt_wa = (
+            f"🎯 *Oportunidades de Captação — {_tipo_label}*\n"
+            f"📍 {filtro_label}\n\n{_linhas}\n\n📊 ImobiFlow Dashboard"
+        )
+        wa_button(_txt_wa, f"📲 Compartilhar oportunidades ({_tipo_label}) no WhatsApp")
+
+with _tab_apto:
+    _montar_grid_capt(df_apto_capt, "Bloco")
+
+with _tab_casa:
+    _montar_grid_capt(df_casa_capt, "Conjunto")
 
 st.divider()
 st.caption("🚀 ImobiFlow © 2026 | Delta Lake | `gold.dfimoveis.05_aln_imoveis_gold`")
