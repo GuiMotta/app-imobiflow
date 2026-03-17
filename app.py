@@ -1,3 +1,4 @@
+import urllib.parse
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -18,8 +19,33 @@ st.markdown("""
     padding: 10px;
     border-left: 4px solid #4C72B0;
 }
+.wa-btn a {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: #25D366;
+    color: white !important;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 0.82rem;
+    font-weight: 600;
+    text-decoration: none;
+}
+.wa-btn a:hover { background: #1ebe5d; }
 </style>
 """, unsafe_allow_html=True)
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+def wa_link(texto: str) -> str:
+    """Gera link wa.me com texto pré-formatado."""
+    return f"https://wa.me/?text={urllib.parse.quote(texto)}"
+
+def wa_button(texto: str, label: str = "📲 Compartilhar no WhatsApp"):
+    """Renderiza botão verde do WhatsApp."""
+    st.markdown(
+        f'<div class="wa-btn"><a href="{wa_link(texto)}" target="_blank">{label}</a></div>',
+        unsafe_allow_html=True
+    )
 
 # ── Databricks SDK ────────────────────────────────────────────────────────────
 @st.cache_resource
@@ -32,7 +58,6 @@ def get_warehouse_id():
     warehouses = list(w.warehouses.list())
     if not warehouses:
         return None
-    # Prefere warehouse Running/Serverless
     for wh in warehouses:
         if wh.state and "RUNNING" in str(wh.state).upper():
             return wh.id
@@ -41,30 +66,34 @@ def get_warehouse_id():
 # ── Carregamento de dados ─────────────────────────────────────────────────────
 @st.cache_data(ttl=900)
 def carregar_dados():
-    w   = get_client()
-    wh  = get_warehouse_id()
+    w  = get_client()
+    wh = get_warehouse_id()
     if not wh:
         st.error("❌ Nenhum SQL Warehouse disponível.")
         st.stop()
 
     sql = """
         SELECT
-            bairro_vitrine                                  AS bairro,
-            preco_atual                                     AS preco,
+            bairro_vitrine                                      AS bairro,
+            preco_atual                                         AS preco,
             area_util,
             quartos,
-            suites,
-            vagas,
             banheiros,
             condominio,
             iptu,
             status,
-            corretor_imobiliaria                            AS corretor,
-            endereco_site                                   AS endereco,
-            CAST(coordenadas_oficiais.lat AS DOUBLE)        AS lat,
-            CAST(coordenadas_oficiais.lon AS DOUBLE)        AS lon,
-            data_cadastro_site                              AS data_cadastro,
-            ROUND(preco_atual / NULLIF(area_util, 0), 0)   AS preco_m2
+            corretor_imobiliaria                                AS corretor,
+            endereco_site                                       AS endereco,
+            url,
+            CAST(coordenadas_oficiais.lat AS DOUBLE)            AS lat,
+            CAST(coordenadas_oficiais.lon AS DOUBLE)            AS lon,
+            data_cadastro_site                                  AS data_cadastro,
+            -- preco_m2 apenas para áreas plausíveis (>= 15 m²) evita outliers de parse
+            CASE
+                WHEN area_util >= 15
+                THEN ROUND(preco_atual / area_util, 0)
+                ELSE NULL
+            END                                                 AS preco_m2
         FROM gold.dfimoveis.`05_aln_imoveis_gold`
         WHERE preco_atual IS NOT NULL
         ORDER BY preco_atual
@@ -86,8 +115,8 @@ def carregar_dados():
     rows = resp.result.data_array or []
     df   = pd.DataFrame(rows, columns=cols)
 
-    for col in ["preco", "area_util", "quartos", "suites", "vagas",
-                "banheiros", "condominio", "iptu", "lat", "lon", "preco_m2"]:
+    for col in ["preco", "area_util", "quartos", "banheiros",
+                "condominio", "iptu", "lat", "lon", "preco_m2"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
@@ -102,20 +131,22 @@ if df.empty:
 st.sidebar.image("https://img.icons8.com/color/96/home--v1.png", width=60)
 st.sidebar.title("🔍 Filtros")
 
-bairros_sel  = st.sidebar.multiselect("Bairro",  sorted(df["bairro"].dropna().unique()))
-preco_min_v  = int(df["preco"].min())
-preco_max_v  = int(df["preco"].max())
-preco_range  = st.sidebar.slider("Preço (R$)", preco_min_v, preco_max_v,
-                                  (preco_min_v, preco_max_v), step=10_000, format="R$ %d")
-quartos_sel  = st.sidebar.multiselect("Quartos", sorted(df["quartos"].dropna().astype(int).unique()))
-status_sel   = st.sidebar.multiselect("Status",  sorted(df["status"].dropna().unique()))
+bairros_sel = st.sidebar.multiselect("Bairro",  sorted(df["bairro"].dropna().unique()))
+preco_min_v = int(df["preco"].min())
+preco_max_v = int(df["preco"].max())
+preco_range = st.sidebar.slider("Preço (R$)", preco_min_v, preco_max_v,
+                                 (preco_min_v, preco_max_v), step=10_000, format="R$ %d")
+quartos_sel = st.sidebar.multiselect("Quartos", sorted(df["quartos"].dropna().astype(int).unique()))
+status_sel  = st.sidebar.multiselect("Status",  sorted(df["status"].dropna().unique()))
 
 # ── Filtros aplicados ─────────────────────────────────────────────────────────
 dff = df.copy()
-if bairros_sel:  dff = dff[dff["bairro"].isin(bairros_sel)]
-if quartos_sel:  dff = dff[dff["quartos"].isin(quartos_sel)]
-if status_sel:   dff = dff[dff["status"].isin(status_sel)]
+if bairros_sel: dff = dff[dff["bairro"].isin(bairros_sel)]
+if quartos_sel: dff = dff[dff["quartos"].isin(quartos_sel)]
+if status_sel:  dff = dff[dff["status"].isin(status_sel)]
 dff = dff[(dff["preco"] >= preco_range[0]) & (dff["preco"] <= preco_range[1])]
+
+filtro_label = ", ".join(bairros_sel) if bairros_sel else "Todos os bairros"
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("🏠 ImobiFlow — Dashboard Imóveis DF")
@@ -129,6 +160,19 @@ k2.metric("💰 Preço Médio",    f"R$ {dff['preco'].mean():,.0f}")
 k3.metric("💰 Preço Mediano",  f"R$ {dff['preco'].median():,.0f}")
 k4.metric("📐 Área Média",     f"{dff['area_util'].mean():,.0f} m²")
 k5.metric("🏷️ R$/m² Médio",    f"R$ {dff['preco_m2'].mean():,.0f}")
+
+# WhatsApp — resumo do mercado
+_txt_kpi = (
+    f"🏠 *Mercado Imobiliário — {filtro_label}*\n\n"
+    f"📋 Total de imóveis: {len(dff):,}\n"
+    f"💰 Preço médio: R$ {dff['preco'].mean():,.0f}\n"
+    f"💰 Preço mediano: R$ {dff['preco'].median():,.0f}\n"
+    f"📐 Área média: {dff['area_util'].mean():,.0f} m²\n"
+    f"🏷️ R$/m² médio: R$ {dff['preco_m2'].mean():,.0f}\n\n"
+    f"📊 Dados atualizados via ImobiFlow Dashboard"
+)
+st.write("")
+wa_button(_txt_kpi, "📲 Compartilhar resumo do mercado no WhatsApp")
 st.divider()
 
 # ── Linha 1 ───────────────────────────────────────────────────────────────────
@@ -145,6 +189,14 @@ with col1:
     fig.update_layout(showlegend=False, coloraxis_showscale=False,
                       yaxis=dict(autorange="reversed"), height=420)
     st.plotly_chart(fig, use_container_width=True)
+    _top5 = avg.head(5)
+    _txt = (
+        f"💵 *Preço Médio por Bairro — Top 5*\n📍 {filtro_label}\n\n"
+        + "\n".join(f"{i+1}. {r['bairro']}: R$ {r['preco']:,.0f}"
+                    for i, r in _top5.iterrows())
+        + "\n\n📊 ImobiFlow Dashboard"
+    )
+    wa_button(_txt)
 
 with col2:
     st.subheader("📊 Distribuição de Preços")
@@ -153,6 +205,18 @@ with col2:
                        labels={"preco": "Preço (R$)", "count": "Imóveis"})
     fig.update_layout(height=420, showlegend=False, bargap=0.05)
     st.plotly_chart(fig, use_container_width=True)
+    _p25 = dff["preco"].quantile(0.25)
+    _p75 = dff["preco"].quantile(0.75)
+    _txt = (
+        f"📊 *Distribuição de Preços — {filtro_label}*\n\n"
+        f"💰 Mínimo: R$ {dff['preco'].min():,.0f}\n"
+        f"💰 25%: R$ {_p25:,.0f}\n"
+        f"💰 Mediana: R$ {dff['preco'].median():,.0f}\n"
+        f"💰 75%: R$ {_p75:,.0f}\n"
+        f"💰 Máximo: R$ {dff['preco'].max():,.0f}\n\n"
+        f"📊 ImobiFlow Dashboard"
+    )
+    wa_button(_txt)
 
 # ── Linha 2 ───────────────────────────────────────────────────────────────────
 col3, col4 = st.columns(2)
@@ -165,6 +229,14 @@ with col3:
                      opacity=0.7)
     fig.update_layout(height=380, showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
+    _txt = (
+        f"📐 *Área Útil × Preço — {filtro_label}*\n\n"
+        f"📐 Área mínima: {dff['area_util'].min():,.0f} m²\n"
+        f"📐 Área média: {dff['area_util'].mean():,.0f} m²\n"
+        f"📐 Área máxima: {dff['area_util'].max():,.0f} m²\n\n"
+        f"📊 ImobiFlow Dashboard"
+    )
+    wa_button(_txt)
 
 with col4:
     st.subheader("🛏️ Imóveis por Nº de Quartos")
@@ -177,6 +249,13 @@ with col4:
     fig.update_traces(textposition="outside")
     fig.update_layout(height=380, showlegend=False, coloraxis_showscale=False)
     st.plotly_chart(fig, use_container_width=True)
+    _txt = (
+        f"🛏️ *Imóveis por Nº de Quartos — {filtro_label}*\n\n"
+        + "\n".join(f"  {int(r['quartos'])} quartos: {int(r['quantidade'])} imóveis"
+                    for _, r in qt.iterrows())
+        + "\n\n📊 ImobiFlow Dashboard"
+    )
+    wa_button(_txt)
 
 # ── Linha 3 ───────────────────────────────────────────────────────────────────
 col5, col6 = st.columns(2)
@@ -192,6 +271,14 @@ with col5:
     fig.update_layout(showlegend=False, coloraxis_showscale=False,
                       yaxis=dict(autorange="reversed"), height=420)
     st.plotly_chart(fig, use_container_width=True)
+    _top5_m2 = avg_m2.head(5)
+    _txt = (
+        f"🏷️ *R$/m² Médio por Bairro — Top 5*\n📍 {filtro_label}\n\n"
+        + "\n".join(f"{i+1}. {r['bairro']}: R$ {r['preco_m2']:,.0f}/m²"
+                    for i, r in _top5_m2.iterrows())
+        + "\n\n📊 ImobiFlow Dashboard"
+    )
+    wa_button(_txt)
 
 with col6:
     st.subheader("📦 Box Plot de Preço por Quartos")
@@ -202,12 +289,23 @@ with col6:
                  category_orders={"quartos": sorted(top_q)})
     fig.update_layout(height=420, showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
+    _medians = (dff[dff["quartos"].isin(top_q)]
+                .groupby("quartos")["preco"].median()
+                .sort_index())
+    _txt = (
+        f"📦 *Preço Mediano por Nº de Quartos — {filtro_label}*\n\n"
+        + "\n".join(f"  {int(q)} quartos: R$ {v:,.0f}"
+                    for q, v in _medians.items())
+        + "\n\n📊 ImobiFlow Dashboard"
+    )
+    wa_button(_txt)
 
 # ── Mapa ──────────────────────────────────────────────────────────────────────
 df_map = dff.dropna(subset=["lat", "lon"]).copy()
 df_map = df_map[(df_map["lat"].between(-16.5, -15.4)) &
                 (df_map["lon"].between(-48.5, -47.2))]
 df_map["area_util"] = df_map["area_util"].fillna(0).clip(lower=0)
+
 if not df_map.empty:
     st.divider()
     st.subheader("🗺️ Mapa dos Imóveis")
@@ -220,24 +318,69 @@ if not df_map.empty:
                             labels={"preco": "Preço (R$)"})
     fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
     st.plotly_chart(fig, use_container_width=True)
+    _txt = (
+        f"🗺️ *Mapa de Imóveis — {filtro_label}*\n\n"
+        f"📍 {len(df_map)} imóveis mapeados no Distrito Federal\n"
+        f"💰 Preço médio: R$ {df_map['preco'].mean():,.0f}\n"
+        f"🏷️ R$/m² médio: R$ {df_map['preco_m2'].mean():,.0f}\n\n"
+        f"📊 ImobiFlow Dashboard"
+    )
+    wa_button(_txt, "📲 Compartilhar dados do mapa no WhatsApp")
 
-# ── Tabela ────────────────────────────────────────────────────────────────────
+# ── Tabela Detalhada ───────────────────────────────────────────────────────────
 st.divider()
 st.subheader("📋 Tabela Detalhada")
-cols_show = [c for c in ["bairro", "preco", "area_util", "preco_m2",
-                          "quartos", "suites", "vagas", "status",
-                          "endereco", "corretor"] if c in dff.columns]
+
+# Colunas exibidas (sem suites, vagas, status)
+cols_tab = [c for c in ["bairro", "preco", "area_util", "preco_m2",
+                         "quartos", "banheiros", "endereco", "corretor", "url"]
+            if c in dff.columns]
+
+df_tab = dff[cols_tab].rename(columns={
+    "bairro":    "Bairro",
+    "preco":     "Preço (R$)",
+    "area_util": "Área (m²)",
+    "preco_m2":  "R$/m²",
+    "quartos":   "Quartos",
+    "banheiros": "Banheiros",
+    "endereco":  "Endereço",
+    "corretor":  "Corretor/Imobiliária",
+    "url":       "🔗 Ver no DFImóveis",
+})
+
 st.dataframe(
-    dff[cols_show].rename(columns={
-        "bairro": "Bairro", "preco": "Preço (R$)", "area_util": "Área (m²)",
-        "preco_m2": "R$/m²", "quartos": "Quartos", "suites": "Suítes",
-        "vagas": "Vagas", "status": "Status",
-        "endereco": "Endereço", "corretor": "Corretor/Imobiliária"
-    }).style.format({
-        "Preço (R$)": "R$ {:,.0f}", "R$/m²": "R$ {:,.0f}", "Área (m²)": "{:,.0f} m²"
-    }),
-    use_container_width=True, hide_index=True, height=420
+    df_tab,
+    use_container_width=True,
+    hide_index=True,
+    height=420,
+    column_config={
+        "Preço (R$)":          st.column_config.NumberColumn(format="R$ %,.0f"),
+        "R$/m²":               st.column_config.NumberColumn(format="R$ %,.0f"),
+        "Área (m²)":           st.column_config.NumberColumn(format="%,.0f m²"),
+        "Quartos":             st.column_config.NumberColumn(format="%d"),
+        "Banheiros":           st.column_config.NumberColumn(format="%d"),
+        "🔗 Ver no DFImóveis": st.column_config.LinkColumn(
+                                   display_text="🏠 Abrir anúncio"
+                               ),
+    }
 )
+
+# WhatsApp — top 5 melhores ofertas (menor R$/m²)
+_melhores = (dff.dropna(subset=["preco_m2", "url"])
+               .sort_values("preco_m2")
+               .head(5))
+if not _melhores.empty:
+    _linhas = "\n".join(
+        f"{i+1}. {r['bairro']} | {int(r['quartos']) if pd.notna(r['quartos']) else '?'}q "
+        f"| R$ {r['preco']:,.0f} | R$/m² {r['preco_m2']:,.0f}\n   🔗 {r['url']}"
+        for i, (_, r) in enumerate(_melhores.iterrows())
+    )
+    _txt_tab = (
+        f"🏆 *Melhores Ofertas por R$/m² — {filtro_label}*\n\n"
+        f"{_linhas}\n\n"
+        f"📊 ImobiFlow Dashboard"
+    )
+    wa_button(_txt_tab, "📲 Compartilhar melhores ofertas no WhatsApp")
 
 st.divider()
 st.caption("🚀 ImobiFlow © 2026 | Delta Lake | `gold.dfimoveis.05_aln_imoveis_gold`")
