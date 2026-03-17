@@ -363,12 +363,18 @@ cols_tab = [c for c in ["bairro", "preco", "area_util", "preco_m2",
             if c in dff.columns]
 
 df_tab = dff[cols_tab].copy()
-# Preenche NaN nos numéricos para evitar o '!' de formatação na grid
-df_tab["preco"]     = df_tab["preco"].fillna(0)
-df_tab["area_util"] = df_tab["area_util"].fillna(0)
-df_tab["preco_m2"]  = df_tab["preco_m2"].fillna(0)
-df_tab["quartos"]   = df_tab["quartos"].fillna(0)
-df_tab["banheiros"] = df_tab["banheiros"].fillna(0)
+
+# Pré-formata como string para evitar o '!' do NumberColumn
+# (format com vírgula não é printf válido no Streamlit)
+def fmt_moeda(v):  return f"R$ {v:,.0f}"  if pd.notna(v) and v > 0 else "—"
+def fmt_area(v):   return f"{v:,.0f} m²"  if pd.notna(v) and v > 0 else "—"
+def fmt_int(v):    return str(int(v))      if pd.notna(v) and v > 0 else "—"
+
+df_tab["preco"]     = df_tab["preco"].apply(fmt_moeda)
+df_tab["preco_m2"]  = df_tab["preco_m2"].apply(fmt_moeda)
+df_tab["area_util"] = df_tab["area_util"].apply(fmt_area)
+df_tab["quartos"]   = df_tab["quartos"].apply(fmt_int)
+df_tab["banheiros"] = df_tab["banheiros"].apply(fmt_int)
 
 df_tab = df_tab.rename(columns={
     "bairro":    "Bairro",
@@ -388,11 +394,6 @@ st.dataframe(
     hide_index=True,
     height=420,
     column_config={
-        "Preço (R$)":          st.column_config.NumberColumn(format="R$ %,.0f"),
-        "R$/m²":               st.column_config.NumberColumn(format="R$ %,.0f"),
-        "Área (m²)":           st.column_config.NumberColumn(format="%,.0f m²"),
-        "Quartos":             st.column_config.NumberColumn(format="%d"),
-        "Banheiros":           st.column_config.NumberColumn(format="%d"),
         "🔗 Ver no DFImóveis": st.column_config.LinkColumn(
                                    display_text="🏠 Abrir anúncio"
                                ),
