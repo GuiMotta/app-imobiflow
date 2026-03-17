@@ -560,5 +560,113 @@ with _tab_apto:
 with _tab_casa:
     _montar_grid_capt(df_casa_capt, "Conjunto")
 
+# ── Oportunidade de Venda ──────────────────────────────────────────────────────
+st.divider()
+st.subheader("💡 Oportunidade de Venda")
+st.caption(
+    "Imóveis com **R$/m² abaixo ou próximo da média do bairro** — "
+    "potencial de valorização ou venda rápida por preço competitivo."
+)
+
+# Controle do threshold pelo corretor
+_col_thr, _ = st.columns([2, 5])
+with _col_thr:
+    _threshold = st.slider(
+        "Máximo acima da média do bairro (%)",
+        min_value=-50, max_value=20, value=0, step=5,
+        format="%d%%",
+        help="0% = apenas abaixo da média | 10% = inclui até 10% acima da média"
+    )
+
+# Calcula média de R$/m² por bairro (usa o df completo, sem filtros, como referência de mercado)
+_media_bairro = (
+    df.dropna(subset=["preco_m2", "bairro"])
+    .groupby("bairro")["preco_m2"]
+    .mean()
+    .rename("media_m2_bairro")
+)
+
+# Aplica sobre o df filtrado + apenas imóveis com preco_m2 válido
+df_venda = dff.dropna(subset=["preco_m2"]).copy()
+df_venda = df_venda.join(_media_bairro, on="bairro")
+
+df_venda["var_vs_media_pct"] = (
+    (df_venda["preco_m2"] - df_venda["media_m2_bairro"])
+    / df_venda["media_m2_bairro"] * 100
+).round(1)
+
+# Filtra pelo threshold escolhido
+df_venda = df_venda[df_venda["var_vs_media_pct"] <= _threshold].sort_values("var_vs_media_pct")
+
+# KPIs rápidos
+_kv1, _kv2, _kv3, _ = st.columns([1, 1, 1, 3])
+_kv1.metric("📋 Oportunidades", f"{len(df_venda):,}")
+if not df_venda.empty:
+    _kv2.metric("🏷️ Maior desconto",
+                f"{df_venda['var_vs_media_pct'].min():+.1f}%")
+    _kv3.metric("💰 Menor R$/m²",
+                f"R$ {df_venda['preco_m2'].min():,.0f}")
+
+st.write("")
+
+if df_venda.empty:
+    st.info("Nenhum imóvel encontrado com os critérios atuais.")
+else:
+    # Monta grid
+    _cols_v = ["bairro", "preco", "area_util", "preco_m2",
+               "media_m2_bairro", "var_vs_media_pct",
+               "quartos", "banheiros", "endereco", "corretor", "url"]
+    _cols_v = [c for c in _cols_v if c in df_venda.columns]
+    df_gv = df_venda[_cols_v].copy()
+
+    # Formata
+    df_gv["preco"]          = df_gv["preco"].apply(fmt_moeda)
+    df_gv["area_util"]      = df_gv["area_util"].apply(fmt_area)
+    df_gv["preco_m2"]       = df_gv["preco_m2"].apply(fmt_moeda)
+    df_gv["media_m2_bairro"]= df_gv["media_m2_bairro"].apply(fmt_moeda)
+    df_gv["var_vs_media_pct"]= df_gv["var_vs_media_pct"].apply(
+        lambda v: f"{v:+.1f}%" if pd.notna(v) else "—"
+    )
+    df_gv["quartos"]        = df_gv["quartos"].apply(fmt_int)
+    df_gv["banheiros"]      = df_gv["banheiros"].apply(fmt_int)
+
+    df_gv = df_gv.rename(columns={
+        "bairro":           "Bairro",
+        "preco":            "Preço (R$)",
+        "area_util":        "Área (m²)",
+        "preco_m2":         "R$/m²",
+        "media_m2_bairro":  "Média R$/m² Bairro",
+        "var_vs_media_pct": "vs. Média",
+        "quartos":          "Quartos",
+        "banheiros":        "Banheiros",
+        "endereco":         "Endereço",
+        "corretor":         "Corretor/Imobiliária",
+        "url":              "🔗 Ver anúncio",
+    })
+
+    st.dataframe(
+        df_gv,
+        use_container_width=True,
+        hide_index=True,
+        height=480,
+        column_config={
+            "🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir"),
+        },
+    )
+
+    # WhatsApp — top 5 mais abaixo da média
+    _top5v = df_venda.head(5)
+    _linhas_v = "\n".join(
+        f"{i+1}. {r['bairro']} | R$/m² {r['preco_m2']:,.0f} "
+        f"({r['var_vs_media_pct']:+.1f}% vs média) | R$ {r['preco']:,.0f}\n   🔗 {r['url']}"
+        for i, (_, r) in enumerate(_top5v.iterrows())
+    )
+    _txt_venda = (
+        f"💡 *Oportunidades de Venda — {filtro_label}*\n"
+        f"_(imóveis abaixo ou na média de R$/m² do bairro)_\n\n"
+        f"{_linhas_v}\n\n📊 ImobiFlow Dashboard"
+    )
+    wa_button(_txt_venda, "📲 Compartilhar oportunidades de venda no WhatsApp")
+
 st.divider()
 st.caption("🚀 ImobiFlow © 2026 | Delta Lake | `gold.dfimoveis.05_aln_imoveis_gold`")
