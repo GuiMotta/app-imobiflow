@@ -47,6 +47,10 @@ def wa_button(texto: str, label: str = "📲 Compartilhar no WhatsApp"):
         unsafe_allow_html=True
     )
 
+# Config Plotly: desabilita zoom/pan nos gráficos (exceto mapa)
+CHART_CONFIG = {"staticPlot": True}
+MAP_CONFIG   = {"scrollZoom": True, "displayModeBar": False}
+
 def chart_actions(fig, filename: str, wa_texto: str, wa_label: str = "📲 Compartilhar no WhatsApp"):
     """Renderiza [Baixar PNG] + [WhatsApp] lado a lado abaixo de cada gráfico."""
     try:
@@ -210,7 +214,7 @@ with col1:
     fig.update_traces(textposition="outside")
     fig.update_layout(showlegend=False, coloraxis_showscale=False,
                       yaxis=dict(autorange="reversed"), height=420)
-    st.plotly_chart(fig, use_container_width=True, key="fig_preco_bairro")
+    st.plotly_chart(fig, use_container_width=True, key="fig_preco_bairro", config=CHART_CONFIG)
     _top5 = avg.head(5)
     _txt = (
         f"💵 *Preço Médio por Bairro — Top 5*\n📍 {filtro_label}\n\n"
@@ -226,7 +230,7 @@ with col2:
                        color_discrete_sequence=["#4C72B0"],
                        labels={"preco": "Preço (R$)", "count": "Imóveis"})
     fig.update_layout(height=420, showlegend=False, bargap=0.05)
-    st.plotly_chart(fig, use_container_width=True, key="fig_dist_preco")
+    st.plotly_chart(fig, use_container_width=True, key="fig_dist_preco", config=CHART_CONFIG)
     _p25 = dff["preco"].quantile(0.25)
     _p75 = dff["preco"].quantile(0.75)
     _txt = (
@@ -250,7 +254,7 @@ with col3:
                      labels={"area_util": "Área Útil (m²)", "preco": "Preço (R$)"},
                      opacity=0.7)
     fig.update_layout(height=380, showlegend=False)
-    st.plotly_chart(fig, use_container_width=True, key="fig_area_preco")
+    st.plotly_chart(fig, use_container_width=True, key="fig_area_preco", config=CHART_CONFIG)
     _txt = (
         f"📐 *Área Útil × Preço — {filtro_label}*\n\n"
         f"📐 Área mínima: {dff['area_util'].min():,.0f} m²\n"
@@ -270,7 +274,7 @@ with col4:
                  labels={"quartos": "Quartos", "quantidade": "Qtd."})
     fig.update_traces(textposition="outside")
     fig.update_layout(height=380, showlegend=False, coloraxis_showscale=False)
-    st.plotly_chart(fig, use_container_width=True, key="fig_quartos")
+    st.plotly_chart(fig, use_container_width=True, key="fig_quartos", config=CHART_CONFIG)
     _txt = (
         f"🛏️ *Imóveis por Nº de Quartos — {filtro_label}*\n\n"
         + "\n".join(f"  {int(r['quartos'])} quartos: {int(r['quantidade'])} imóveis"
@@ -292,7 +296,7 @@ with col5:
     fig.update_traces(textposition="outside")
     fig.update_layout(showlegend=False, coloraxis_showscale=False,
                       yaxis=dict(autorange="reversed"), height=420)
-    st.plotly_chart(fig, use_container_width=True, key="fig_m2_bairro")
+    st.plotly_chart(fig, use_container_width=True, key="fig_m2_bairro", config=CHART_CONFIG)
     _top5_m2 = avg_m2.head(5)
     _txt = (
         f"🏷️ *R$/m² Médio por Bairro — Top 5*\n📍 {filtro_label}\n\n"
@@ -310,7 +314,7 @@ with col6:
                  labels={"quartos": "Quartos", "preco": "Preço (R$)"},
                  category_orders={"quartos": sorted(top_q)})
     fig.update_layout(height=420, showlegend=False)
-    st.plotly_chart(fig, use_container_width=True, key="fig_boxplot")
+    st.plotly_chart(fig, use_container_width=True, key="fig_boxplot", config=CHART_CONFIG)
     _medians = (dff[dff["quartos"].isin(top_q)]
                 .groupby("quartos")["preco"].median()
                 .sort_index())
@@ -339,7 +343,7 @@ if not df_map.empty:
                             zoom=10.5, height=520, mapbox_style="carto-positron",
                             labels={"preco": "Preço (R$)"})
     fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
-    st.plotly_chart(fig, use_container_width=True, key="fig_mapa")
+    st.plotly_chart(fig, use_container_width=True, key="fig_mapa", config=MAP_CONFIG)
     _txt = (
         f"🗺️ *Mapa de Imóveis — {filtro_label}*\n\n"
         f"📍 {len(df_map)} imóveis mapeados no Distrito Federal\n"
