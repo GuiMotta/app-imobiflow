@@ -222,20 +222,23 @@ if df.empty:
 st.sidebar.image("https://img.icons8.com/color/96/home--v1.png", width=60)
 st.sidebar.title("🔍 Filtros")
 
-bairros_sel   = st.sidebar.multiselect("Bairro",  sorted(df["bairro"].dropna().unique()))
+# 1. Localização
+bairros_sel   = st.sidebar.multiselect("📍 Bairro", sorted(df["bairro"].dropna().unique()))
+
+# 2. Características do imóvel
+quartos_sel   = st.sidebar.multiselect("🛏️ Quartos", sorted(df["quartos"].dropna().astype(int).unique()))
+
 preco_min_v   = int(df["preco"].min())
 preco_max_v   = int(df["preco"].max())
-preco_range   = st.sidebar.slider("Preço (R$)", preco_min_v, preco_max_v,
+preco_range   = st.sidebar.slider("💰 Preço (R$)", preco_min_v, preco_max_v,
                                    (preco_min_v, preco_max_v), step=10_000, format="R$ %d")
-quartos_sel   = st.sidebar.multiselect("Quartos", sorted(df["quartos"].dropna().astype(int).unique()))
+
 area_min_v    = int(df["area_util"].dropna().min())
 area_max_v    = int(df["area_util"].dropna().max())
-area_range    = st.sidebar.slider("Área (m²)", area_min_v, area_max_v,
+area_range    = st.sidebar.slider("📐 Área (m²)", area_min_v, area_max_v,
                                    (area_min_v, area_max_v), step=5, format="%d m²")
-status_sel    = st.sidebar.multiselect("Status",  sorted(df["status"].dropna().unique()))
-corretor_opts = sorted(df["corretor"].dropna().unique())
-corretor_sel  = st.sidebar.multiselect("Corretor / Imobiliária", corretor_opts)
 
+# 3. Recência
 st.sidebar.markdown("**📅 Cadastrado no site**")
 _PERIODOS = {
     "Todos": None, "Hoje": 0, "Últimos 7 dias": 7,
@@ -260,6 +263,12 @@ elif _PERIODOS[_periodo_sel] == -1:
 else:
     data_fim    = _hoje
     data_inicio = _hoje - datetime.timedelta(days=_PERIODOS[_periodo_sel])
+
+# 4. Operacional (uso menos frequente)
+st.sidebar.markdown("---")
+status_sel    = st.sidebar.multiselect("⚙️ Status",  sorted(df["status"].dropna().unique()))
+corretor_opts = sorted(df["corretor"].dropna().unique())
+corretor_sel  = st.sidebar.multiselect("👤 Corretor / Imobiliária", corretor_opts)
 
 # ── Filtros aplicados ─────────────────────────────────────────────────────────
 dff = df.copy()
