@@ -325,7 +325,7 @@ with tab_mercado:
     st.divider()
 
     # ── Timeline últimos 7 dias — Novos cadastros × Inativados ──────────────
-    st.subheader("📅 Movimentação dos Últimos 7 Dias")
+    st.subheader("📅 Movimentação nos Últimos 7 Dias — DF Imóveis")
 
     _hoje_tl = pd.Timestamp.today().normalize()
     _7dias   = _hoje_tl - pd.Timedelta(days=6)
@@ -349,30 +349,97 @@ with tab_mercado:
     })
     _tl["Data"] = pd.to_datetime(_tl["Data"])
 
-    fig_tl = px.bar(
+    fig_tl = px.line(
         _tl.melt(id_vars="Data", var_name="Tipo", value_name="Quantidade"),
-        x="Data", y="Quantidade", color="Tipo", barmode="group",
+        x="Data", y="Quantidade", color="Tipo",
         color_discrete_map={"Novos anúncios": "#2ecc71", "Inativados": "#e74c3c"},
         labels={"Data": "", "Quantidade": "Qtd. Anúncios"},
-        text="Quantidade",
+        markers=True, text="Quantidade",
     )
-    fig_tl.update_traces(textposition="outside")
+    fig_tl.update_traces(textposition="top center", line=dict(width=3))
     fig_tl.update_layout(
         height=320, legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
-        xaxis_tickformat="%d/%m", bargap=0.25,
+        xaxis_tickformat="%d/%m",
     )
     st.plotly_chart(fig_tl, use_container_width=True, key="fig_timeline", config=CHART_CONFIG)
 
     _total_novos = int(_tl["Novos anúncios"].sum())
     _total_inat  = int(_tl["Inativados"].sum())
     _txt_tl = (
-        f"📅 *Movimentação — Últimos 7 dias*\n📍 {filtro_label}\n\n"
+        f"📅 *Movimentação nos Últimos 7 dias — DF Imóveis*\n📍 {filtro_label}\n\n"
         f"✅ Novos anúncios: {_total_novos}\n"
         f"❌ Inativados: {_total_inat}\n"
         f"📊 Saldo: {_total_novos - _total_inat:+d}\n\n"
         f"📊 ImobiFlow Dashboard"
     )
     chart_actions(fig_tl, "timeline_7dias", _txt_tl)
+    st.divider()
+
+    # ── Ranking de Corretores/Imobiliárias — Cadastros × Retiradas ────────
+    _col_rank1, _col_rank2 = st.columns(2)
+
+    with _col_rank1:
+        st.subheader("🏆 Top Corretores — Mais Cadastros")
+        _dc_all = pd.to_datetime(dff["data_cadastro"], errors="coerce")
+        _df_novos_corr = dff[_dc_all.between(_7dias, _hoje_tl)].copy()
+        if not _df_novos_corr.empty and _df_novos_corr["corretor"].notna().any():
+            _rank_novos = (
+                _df_novos_corr.groupby("corretor").size()
+                .sort_values(ascending=False).head(10).reset_index()
+            )
+            _rank_novos.columns = ["Corretor/Imobiliária", "Cadastros"]
+            fig_rn = px.bar(
+                _rank_novos, x="Cadastros", y="Corretor/Imobiliária",
+                orientation="h", text="Cadastros",
+                color="Cadastros", color_continuous_scale="Greens",
+            )
+            fig_rn.update_traces(textposition="outside")
+            fig_rn.update_layout(
+                height=380, showlegend=False, coloraxis_showscale=False,
+                yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(fig_rn, use_container_width=True, key="fig_rank_novos", config=CHART_CONFIG)
+            _txt_rn = (
+                f"🏆 *Top Corretores — Mais Cadastros (7 dias)*\n📍 {filtro_label}\n\n"
+                + "\n".join(f"{i+1}. {r['Corretor/Imobiliária']}: {r['Cadastros']} anúncios"
+                            for i, r in _rank_novos.head(5).iterrows())
+                + "\n\n📊 ImobiFlow Dashboard"
+            )
+            chart_actions(fig_rn, "rank_corretores_cadastros", _txt_rn)
+        else:
+            st.info("Sem dados de cadastros nos últimos 7 dias.")
+
+    with _col_rank2:
+        st.subheader("📉 Top Corretores — Mais Retiradas")
+        _di_all = pd.to_datetime(df["dt_inativo"], errors="coerce")
+        _df_inat_corr = df[_di_all.between(_7dias, _hoje_tl)].copy()
+        if not _df_inat_corr.empty and "corretor" in _df_inat_corr.columns and _df_inat_corr["corretor"].notna().any():
+            _rank_inat = (
+                _df_inat_corr.groupby("corretor").size()
+                .sort_values(ascending=False).head(10).reset_index()
+            )
+            _rank_inat.columns = ["Corretor/Imobiliária", "Retiradas"]
+            fig_ri = px.bar(
+                _rank_inat, x="Retiradas", y="Corretor/Imobiliária",
+                orientation="h", text="Retiradas",
+                color="Retiradas", color_continuous_scale="Reds",
+            )
+            fig_ri.update_traces(textposition="outside")
+            fig_ri.update_layout(
+                height=380, showlegend=False, coloraxis_showscale=False,
+                yaxis=dict(autorange="reversed"),
+            )
+            st.plotly_chart(fig_ri, use_container_width=True, key="fig_rank_inat", config=CHART_CONFIG)
+            _txt_ri = (
+                f"📉 *Top Corretores — Mais Retiradas (7 dias)*\n📍 {filtro_label}\n\n"
+                + "\n".join(f"{i+1}. {r['Corretor/Imobiliária']}: {r['Retiradas']} retirados"
+                            for i, r in _rank_inat.head(5).iterrows())
+                + "\n\n📊 ImobiFlow Dashboard"
+            )
+            chart_actions(fig_ri, "rank_corretores_retiradas", _txt_ri)
+        else:
+            st.info("Sem dados de retiradas nos últimos 7 dias.")
+
     st.divider()
 
     # ── Gráficos de mercado ──────────────────────────────────────────────────
