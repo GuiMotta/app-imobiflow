@@ -175,6 +175,7 @@ def carregar_dados():
             CAST(coordenadas_oficiais.lat AS DOUBLE)            AS lat,
             CAST(coordenadas_oficiais.lon AS DOUBLE)            AS lon,
             data_cadastro_site                                  AS data_cadastro,
+            dt_inativo,
             CASE
                 WHEN area_util >= 15
                 THEN ROUND(preco_atual / area_util, 0)
@@ -286,27 +287,9 @@ if data_inicio is not None:
 
 filtro_label = ", ".join(bairros_sel) if bairros_sel else "Todos os bairros"
 
-# ── Header + KPIs ─────────────────────────────────────────────────────────────
+# ── Header ────────────────────────────────────────────────────────────────────
 st.title("🏠 ImobiFlow — Dashboard Imóveis DF")
 st.caption("📦 Fonte: `gold.dfimoveis.05_aln_imoveis_gold`")
-
-k1, k2, k3, k4 = st.columns(4)
-k1.metric("📋 Total Imóveis", f"{len(dff):,}")
-k2.metric("💰 Preço Médio",   f"R$ {dff['preco'].mean():,.0f}")
-k3.metric("📐 Área Média",    f"{dff['area_util'].mean():,.0f} m²")
-k4.metric("🏷️ R$/m² Médio",   f"R$ {dff['preco_m2'].mean():,.0f}")
-
-_txt_kpi = (
-    f"🏠 *Mercado Imobiliário — {filtro_label}*\n\n"
-    f"📋 Total de imóveis: {len(dff):,}\n"
-    f"💰 Preço médio: R$ {dff['preco'].mean():,.0f}\n"
-    f"📐 Área média: {dff['area_util'].mean():,.0f} m²\n"
-    f"🏷️ R$/m² médio: R$ {dff['preco_m2'].mean():,.0f}\n\n"
-    f"📊 Dados atualizados via ImobiFlow Dashboard"
-)
-st.write("")
-wa_button(_txt_kpi, "📲 Compartilhar resumo do mercado no WhatsApp")
-st.divider()
 
 # ── Abas principais ───────────────────────────────────────────────────────────
 tab_mercado, tab_mapa, tab_opor = st.tabs([
@@ -319,6 +302,87 @@ tab_mercado, tab_mapa, tab_opor = st.tabs([
 # ABA 1 — MERCADO
 # ════════════════════════════════════════════════════════════════════════════════
 with tab_mercado:
+    # ── KPIs do mercado ──────────────────────────────────────────────────────
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("📋 Total Imóveis", f"{len(dff):,}")
+    k2.metric("💰 Preço Médio",   f"R$ {dff['preco'].mean():,.0f}")
+    k3.metric("📐 Área Média",    f"{dff['area_util'].mean():,.0f} m²")
+    k4.metric("🏷️ R$/m² Médio",   f"R$ {dff['preco_m2'].mean():,.0f}")
+
+    _txt_kpi = (
+        f"🏠 *Mercado Imobiliário — {filtro_label}*\n\n"
+        f"📋 Total de imóveis: {len(dff):,}\n"
+        f"💰 Preço médio: R$ {dff['preco'].mean():,.0f}\n"
+        f"📐 Área média: {dff['area_util'].mean():,.0f} m²\n"
+        f"🏷️ R$/m² médio: R$ {dff['preco_m2'].mean():,.0f}\n\n"
+        f"📊 Dados atualizados via ImobiFlow Dashboard"
+    )
+    wa_button(_txt_kpi, "📲 Compartilhar resumo do mercado no WhatsApp")
+    st.divider()
+
+    # ── Timeline últimos 7 dias — Novos cadastros × Inativados ──────────────
+    st.subheader("📅 Movimentação dos Últimos 7 Dias")
+
+    _hoje_tl = pd.Timestamp.today().normalize()
+    _7dias   = _hoje_tl - pd.Timedelta(days=6)
+
+    # Novos cadastros por dia (usa data_cadastro = data_cadastro_site)
+    _dc = pd.to_datetime(dff["data_cadastro"], errors="coerce")
+    _novos = (
+        _dc[_dc.between(_7dias, _hoje_tl)]
+        .dt.date
+        .value_counts()
+        .rename("Novos anúncios")
+        .sort_index()
+    )
+
+    # Inativados por dia (usa dt_inativo)
+    _di = pd.to_datetime(df["dt_inativo"], errors="coerce")  # usa df completo (sem filtros)
+    _inat = (
+        _di[_di.between(_7dias, _hoje_tl)]
+        .dt.date
+        .value_counts()
+        .rename("Inativados")
+        .sort_index()
+    )
+
+    # Montar dataframe da timeline com todos os 7 dias
+    _datas_range = pd.date_range(_7dias, _hoje_tl, freq="D").date
+    _tl = pd.DataFrame({"Data": _datas_range})
+    _tl = _tl.merge(_novos.reset_index().rename(columns={"index": "Data"}),
+                     on="Data", how="left")
+    _tl = _tl.merge(_inat.reset_index().rename(columns={"index": "Data"}),
+                     on="Data", how="left")
+    _tl = _tl.fillna(0).astype({"Novos anúncios": int, "Inativados": int})
+    _tl["Data"] = pd.to_datetime(_tl["Data"])
+
+    fig_tl = px.bar(
+        _tl.melt(id_vars="Data", var_name="Tipo", value_name="Quantidade"),
+        x="Data", y="Quantidade", color="Tipo", barmode="group",
+        color_discrete_map={"Novos anúncios": "#2ecc71", "Inativados": "#e74c3c"},
+        labels={"Data": "", "Quantidade": "Qtd. Anúncios"},
+        text="Quantidade",
+    )
+    fig_tl.update_traces(textposition="outside")
+    fig_tl.update_layout(
+        height=320, legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
+        xaxis_tickformat="%d/%m", bargap=0.25,
+    )
+    st.plotly_chart(fig_tl, use_container_width=True, key="fig_timeline", config=CHART_CONFIG)
+
+    _total_novos = int(_tl["Novos anúncios"].sum())
+    _total_inat  = int(_tl["Inativados"].sum())
+    _txt_tl = (
+        f"📅 *Movimentação — Últimos 7 dias*\n📍 {filtro_label}\n\n"
+        f"✅ Novos anúncios: {_total_novos}\n"
+        f"❌ Inativados: {_total_inat}\n"
+        f"📊 Saldo: {_total_novos - _total_inat:+d}\n\n"
+        f"📊 ImobiFlow Dashboard"
+    )
+    chart_actions(fig_tl, "timeline_7dias", _txt_tl)
+    st.divider()
+
+    # ── Gráficos de mercado ──────────────────────────────────────────────────
     col1, col2 = st.columns(2)
 
     with col1:
