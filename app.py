@@ -1,4 +1,5 @@
 import urllib.parse
+import datetime
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -181,6 +182,38 @@ status_sel    = st.sidebar.multiselect("Status",  sorted(df["status"].dropna().u
 corretor_opts = sorted(df["corretor"].dropna().unique())
 corretor_sel  = st.sidebar.multiselect("Corretor / Imobiliária", corretor_opts)
 
+# ── Filtro de Data de Cadastro ─────────────────────────────────────────────────
+st.sidebar.markdown("**📅 Cadastrado no site**")
+_PERIODOS = {
+    "Todos":            None,
+    "Hoje":             0,
+    "Últimos 7 dias":   7,
+    "Últimos 15 dias":  15,
+    "Últimos 30 dias":  30,
+    "Últimos 90 dias":  90,
+    "Personalizado":    -1,
+}
+_periodo_sel = st.sidebar.selectbox(
+    "Período", list(_PERIODOS.keys()), index=0, label_visibility="collapsed"
+)
+_hoje = datetime.date.today()
+if _PERIODOS[_periodo_sel] is None:          # Todos
+    data_inicio, data_fim = None, None
+elif _PERIODOS[_periodo_sel] == -1:          # Personalizado
+    _range_datas = st.sidebar.date_input(
+        "Intervalo de datas",
+        value=(_hoje - datetime.timedelta(days=30), _hoje),
+        max_value=_hoje,
+        format="DD/MM/YYYY",
+    )
+    if isinstance(_range_datas, (list, tuple)) and len(_range_datas) == 2:
+        data_inicio, data_fim = _range_datas
+    else:
+        data_inicio, data_fim = _range_datas[0], _range_datas[0]
+else:                                        # Atalhos rápidos
+    data_fim   = _hoje
+    data_inicio = _hoje - datetime.timedelta(days=_PERIODOS[_periodo_sel])
+
 # ── Filtros aplicados ─────────────────────────────────────────────────────────
 dff = df.copy()
 if bairros_sel:  dff = dff[dff["bairro"].isin(bairros_sel)]
@@ -190,6 +223,10 @@ if corretor_sel: dff = dff[dff["corretor"].isin(corretor_sel)]
 dff = dff[(dff["preco"] >= preco_range[0]) & (dff["preco"] <= preco_range[1])]
 # Área: inclui imóveis sem área cadastrada (NaN) + os que estão no range
 dff = dff[dff["area_util"].isna() | dff["area_util"].between(area_range[0], area_range[1])]
+# Data de cadastro
+if data_inicio is not None:
+    _dc = pd.to_datetime(dff["data_cadastro"], errors="coerce").dt.date
+    dff = dff[_dc.between(data_inicio, data_fim)]
 
 filtro_label = ", ".join(bairros_sel) if bairros_sel else "Todos os bairros"
 
