@@ -328,32 +328,21 @@ with tab_mercado:
 
     # Novos cadastros por dia (usa data_cadastro = data_cadastro_site)
     _dc = pd.to_datetime(dff["data_cadastro"], errors="coerce")
-    _novos = (
-        _dc[_dc.between(_7dias, _hoje_tl)]
-        .dt.date
-        .value_counts()
-        .rename("Novos anúncios")
-        .sort_index()
-    )
+    _dc_filtrado = _dc[_dc.between(_7dias, _hoje_tl)].dt.date
+    _novos_dict = _dc_filtrado.value_counts().to_dict()
 
     # Inativados por dia (usa dt_inativo)
     _di = pd.to_datetime(df["dt_inativo"], errors="coerce")  # usa df completo (sem filtros)
-    _inat = (
-        _di[_di.between(_7dias, _hoje_tl)]
-        .dt.date
-        .value_counts()
-        .rename("Inativados")
-        .sort_index()
-    )
+    _di_filtrado = _di[_di.between(_7dias, _hoje_tl)].dt.date
+    _inat_dict = _di_filtrado.value_counts().to_dict()
 
     # Montar dataframe da timeline com todos os 7 dias
     _datas_range = pd.date_range(_7dias, _hoje_tl, freq="D").date
-    _tl = pd.DataFrame({"Data": _datas_range})
-    _tl = _tl.merge(_novos.reset_index().rename(columns={"index": "Data"}),
-                     on="Data", how="left")
-    _tl = _tl.merge(_inat.reset_index().rename(columns={"index": "Data"}),
-                     on="Data", how="left")
-    _tl = _tl.fillna(0).astype({"Novos anúncios": int, "Inativados": int})
+    _tl = pd.DataFrame({
+        "Data": _datas_range,
+        "Novos anúncios": [int(_novos_dict.get(d, 0)) for d in _datas_range],
+        "Inativados":     [int(_inat_dict.get(d, 0))   for d in _datas_range],
+    })
     _tl["Data"] = pd.to_datetime(_tl["Data"])
 
     fig_tl = px.bar(
