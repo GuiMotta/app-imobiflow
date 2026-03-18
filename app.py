@@ -57,8 +57,8 @@ def wa_imovel_link(url):
         return wa_link(f"Confira este imóvel: {url}")
     return ""
 
-CHART_CONFIG = {"displayModeBar": False}
-MAP_CONFIG   = {"scrollZoom": True, "displayModeBar": False}
+CHART_CONFIG = {"displayModeBar": "hover"}   # barra aparece ao passar o mouse
+MAP_CONFIG   = {"scrollZoom": True, "displayModeBar": False}  # mapa sem barra (ocupa espaço)
 
 def chart_actions(fig, filename: str, wa_texto: str, wa_label: str = "📲 Compartilhar no WhatsApp"):
     try:
