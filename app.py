@@ -266,9 +266,11 @@ else:
 
 # 4. Operacional (uso menos frequente)
 st.sidebar.markdown("---")
-status_sel    = st.sidebar.multiselect("⚙️ Status",  sorted(df["status"].dropna().unique()))
-corretor_opts = sorted(df["corretor"].dropna().unique())
-corretor_sel  = st.sidebar.multiselect("👤 Corretor / Imobiliária", corretor_opts)
+_status_opts    = sorted(df["status"].dropna().unique())
+_status_default = ["Ativo"] if "Ativo" in _status_opts else []
+status_sel      = st.sidebar.multiselect("⚙️ Status", _status_opts, default=_status_default)
+corretor_opts   = sorted(df["corretor"].dropna().unique())
+corretor_sel    = st.sidebar.multiselect("👤 Corretor / Imobiliária", corretor_opts)
 
 # ── Filtros aplicados ─────────────────────────────────────────────────────────
 dff = df.copy()
@@ -466,9 +468,15 @@ with tab_mapa:
         )
         fig_map.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
 
+        # Contador de limpeza: incrementar muda a key do gráfico → reseta seleção
+        if "mapa_clear" not in st.session_state:
+            st.session_state.mapa_clear = 0
+
         # on_select="rerun" → re-executa o app quando o usuário clica em um ponto
+        # key dinâmica → quando mapa_clear incrementa, widget é recriado sem seleção
         mapa_sel = st.plotly_chart(
-            fig_map, use_container_width=True, key="fig_mapa",
+            fig_map, use_container_width=True,
+            key=f"fig_mapa_{st.session_state.mapa_clear}",
             config=MAP_CONFIG, on_select="rerun", selection_mode="points"
         )
 
@@ -492,15 +500,16 @@ with tab_mapa:
                     else [])
 
         if _sel_pts:
-            # Extrai índices originais do customdata
             _orig_idx = [int(p["customdata"][0]) for p in _sel_pts
                          if p.get("customdata")]
             df_tabela = dff.loc[_orig_idx] if _orig_idx else dff
-            _sel_label = f"📍 {len(_sel_pts)} imóvel(is) selecionado(s) no mapa"
             _col_lbl, _col_btn = st.columns([3, 1])
-            _col_lbl.markdown(f"**{_sel_label}** — clique fora de um ponto para ver todos")
+            _col_lbl.markdown(
+                f"**📍 {len(_sel_pts)} imóvel(is) selecionado(s) no mapa**"
+            )
             with _col_btn:
                 if st.button("✖ Limpar seleção", use_container_width=True):
+                    st.session_state.mapa_clear += 1  # nova key → widget recriado sem seleção
                     st.rerun()
         else:
             df_tabela = dff
