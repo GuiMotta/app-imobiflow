@@ -51,6 +51,12 @@ def fmt_moeda(v):  return f"R$ {v:,.0f}"  if pd.notna(v) and v > 0 else "—"
 def fmt_area(v):   return f"{v:,.0f} m²"  if pd.notna(v) and v > 0 else "—"
 def fmt_int(v):    return str(int(v))      if pd.notna(v) and v > 0 else "—"
 
+def wa_imovel_link(url):
+    """Gera link wa.me com a URL do imóvel pré-preenchida."""
+    if pd.notna(url) and str(url).startswith("http"):
+        return wa_link(f"Confira este imóvel: {url}")
+    return ""
+
 CHART_CONFIG = {"displayModeBar": False}
 MAP_CONFIG   = {"scrollZoom": True, "displayModeBar": False}
 
@@ -66,6 +72,65 @@ def chart_actions(fig, filename: str, wa_texto: str, wa_label: str = "📲 Compa
             wa_button(wa_texto, wa_label)
     except Exception:
         wa_button(wa_texto, wa_label)
+
+def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=480):
+    """
+    Monta grid com colunas formatadas + coluna WhatsApp por imóvel.
+    col_extra: nome de coluna extra (ex: 'Bloco', 'Conjunto') a inserir no início.
+    """
+    if cols_base is None:
+        cols_base = ["bairro", "preco", "area_util", "preco_m2",
+                     "quartos", "banheiros", "endereco", "corretor", "url"]
+
+    cols = [c for c in cols_base if c in df_raw.columns]
+    df_g = df_raw[cols + ([col_extra] if col_extra and col_extra in df_raw.columns else [])].copy()
+
+    # Coluna WhatsApp por imóvel (antes de renomear)
+    df_g["📲 WA"] = df_g["url"].apply(wa_imovel_link) if "url" in df_g.columns else ""
+
+    # Formatações numéricas
+    for c, fn in [("preco", fmt_moeda), ("preco_m2", fmt_moeda),
+                  ("area_util", fmt_area), ("quartos", fmt_int), ("banheiros", fmt_int)]:
+        if c in df_g.columns:
+            df_g[c] = df_g[c].apply(fn)
+    if "media_m2_bairro" in df_g.columns:
+        df_g["media_m2_bairro"] = df_g["media_m2_bairro"].apply(fmt_moeda)
+    if "var_vs_media_pct" in df_g.columns:
+        df_g["var_vs_media_pct"] = df_g["var_vs_media_pct"].apply(
+            lambda v: f"{v:+.1f}%" if pd.notna(v) else "—"
+        )
+
+    df_g = df_g.rename(columns={
+        "bairro":           "Bairro",
+        "preco":            "Preço (R$)",
+        "area_util":        "Área (m²)",
+        "preco_m2":         "R$/m²",
+        "media_m2_bairro":  "Média R$/m² Bairro",
+        "var_vs_media_pct": "vs. Média",
+        "quartos":          "Quartos",
+        "banheiros":        "Banheiros",
+        "endereco":         "Endereço",
+        "corretor":         "Corretor/Imobiliária",
+        "url":              "🔗 Ver anúncio",
+    })
+
+    # Ordem das colunas
+    prioridade = ([col_extra] if col_extra else []) + [
+        "Bairro", "Endereço", "Preço (R$)", "R$/m²", "Média R$/m² Bairro", "vs. Média",
+        "Área (m²)", "Quartos", "Banheiros", "Corretor/Imobiliária", "🔗 Ver anúncio", "📲 WA"
+    ]
+    df_g = df_g[[c for c in prioridade if c in df_g.columns]]
+
+    st.dataframe(
+        df_g,
+        use_container_width=True,
+        hide_index=True,
+        height=altura,
+        column_config={
+            "🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir"),
+            "📲 WA":          st.column_config.LinkColumn(display_text="📲 WhatsApp"),
+        },
+    )
 
 # ── Databricks SDK ────────────────────────────────────────────────────────────
 @st.cache_resource
@@ -210,22 +275,20 @@ if data_inicio is not None:
 
 filtro_label = ", ".join(bairros_sel) if bairros_sel else "Todos os bairros"
 
-# ── Header + KPIs (fixos, fora das abas) ──────────────────────────────────────
+# ── Header + KPIs ─────────────────────────────────────────────────────────────
 st.title("🏠 ImobiFlow — Dashboard Imóveis DF")
 st.caption("📦 Fonte: `gold.dfimoveis.05_aln_imoveis_gold`")
 
-k1, k2, k3, k4, k5 = st.columns(5)
-k1.metric("📋 Total Imóveis",  f"{len(dff):,}")
-k2.metric("💰 Preço Médio",    f"R$ {dff['preco'].mean():,.0f}")
-k3.metric("💰 Preço Mediano",  f"R$ {dff['preco'].median():,.0f}")
-k4.metric("📐 Área Média",     f"{dff['area_util'].mean():,.0f} m²")
-k5.metric("🏷️ R$/m² Médio",    f"R$ {dff['preco_m2'].mean():,.0f}")
+k1, k2, k3, k4 = st.columns(4)
+k1.metric("📋 Total Imóveis", f"{len(dff):,}")
+k2.metric("💰 Preço Médio",   f"R$ {dff['preco'].mean():,.0f}")
+k3.metric("📐 Área Média",    f"{dff['area_util'].mean():,.0f} m²")
+k4.metric("🏷️ R$/m² Médio",   f"R$ {dff['preco_m2'].mean():,.0f}")
 
 _txt_kpi = (
     f"🏠 *Mercado Imobiliário — {filtro_label}*\n\n"
     f"📋 Total de imóveis: {len(dff):,}\n"
     f"💰 Preço médio: R$ {dff['preco'].mean():,.0f}\n"
-    f"💰 Preço mediano: R$ {dff['preco'].median():,.0f}\n"
     f"📐 Área média: {dff['area_util'].mean():,.0f} m²\n"
     f"🏷️ R$/m² médio: R$ {dff['preco_m2'].mean():,.0f}\n\n"
     f"📊 Dados atualizados via ImobiFlow Dashboard"
@@ -368,63 +431,79 @@ with tab_mercado:
         chart_actions(fig, "boxplot_preco_quartos", _txt)
 
 # ════════════════════════════════════════════════════════════════════════════════
-# ABA 2 — MAPA & TABELA  (sub-abas)
+# ABA 2 — MAPA & TABELA
+# Mapa no topo; clique em ponto filtra a tabela abaixo
 # ════════════════════════════════════════════════════════════════════════════════
 with tab_mapa:
-    sub_mapa, sub_tabela = st.tabs(["🗺️ Mapa", "📋 Tabela"])
+    # Prepara df para o mapa preservando o índice original de dff
+    df_map = dff.dropna(subset=["lat", "lon"]).copy()
+    df_map = df_map[(df_map["lat"].between(-16.5, -15.4)) &
+                    (df_map["lon"].between(-48.5, -47.2))]
+    df_map["area_util_sz"] = df_map["area_util"].fillna(0).clip(lower=0)
+    # Guarda índice original para vincular clique → tabela
+    df_map = df_map.reset_index()          # coluna "index" = índice original do dff
 
-    # ── Sub-aba: Mapa ──────────────────────────────────────────────────────────
-    with sub_mapa:
-        df_map = dff.dropna(subset=["lat", "lon"]).copy()
-        df_map = df_map[(df_map["lat"].between(-16.5, -15.4)) &
-                        (df_map["lon"].between(-48.5, -47.2))]
-        df_map["area_util"] = df_map["area_util"].fillna(0).clip(lower=0)
+    if df_map.empty:
+        st.info("Nenhum imóvel com coordenadas nos filtros atuais.")
+    else:
+        fig_map = px.scatter_mapbox(
+            df_map, lat="lat", lon="lon",
+            color="preco", size="area_util_sz", size_max=20,
+            hover_data=["bairro", "preco", "area_util", "quartos", "preco_m2", "endereco"],
+            custom_data=["index"],          # ← índice original → usado no filtro da tabela
+            color_continuous_scale="RdYlGn_r",
+            zoom=10.5, height=500, mapbox_style="carto-positron",
+            labels={"preco": "Preço (R$)"}
+        )
+        fig_map.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
 
-        if df_map.empty:
-            st.info("Nenhum imóvel com coordenadas nos filtros atuais.")
+        # on_select="rerun" → re-executa o app quando o usuário clica em um ponto
+        mapa_sel = st.plotly_chart(
+            fig_map, use_container_width=True, key="fig_mapa",
+            config=MAP_CONFIG, on_select="rerun", selection_mode="points"
+        )
+
+        _txt_mapa = (
+            f"🗺️ *Mapa de Imóveis — {filtro_label}*\n\n"
+            f"📍 {len(df_map)} imóveis mapeados no Distrito Federal\n"
+            f"💰 Preço médio: R$ {df_map['preco'].mean():,.0f}\n"
+            f"🏷️ R$/m² médio: R$ {df_map['preco_m2'].mean():,.0f}\n\n"
+            f"📊 ImobiFlow Dashboard"
+        )
+        chart_actions(fig_map, "mapa_imoveis", _txt_mapa,
+                      "📲 Compartilhar dados do mapa no WhatsApp")
+
+        # ── Tabela vinculada ao clique no mapa ────────────────────────────────
+        st.divider()
+
+        # Detecta se há pontos selecionados no mapa
+        _sel_pts = (mapa_sel.selection.points
+                    if mapa_sel and hasattr(mapa_sel, "selection")
+                       and mapa_sel.selection and mapa_sel.selection.points
+                    else [])
+
+        if _sel_pts:
+            # Extrai índices originais do customdata
+            _orig_idx = [int(p["customdata"][0]) for p in _sel_pts
+                         if p.get("customdata")]
+            df_tabela = dff.loc[_orig_idx] if _orig_idx else dff
+            _sel_label = f"📍 {len(_sel_pts)} imóvel(is) selecionado(s) no mapa"
+            _col_lbl, _col_btn = st.columns([3, 1])
+            _col_lbl.markdown(f"**{_sel_label}** — clique fora de um ponto para ver todos")
+            with _col_btn:
+                if st.button("✖ Limpar seleção", use_container_width=True):
+                    st.rerun()
         else:
-            fig = px.scatter_mapbox(df_map, lat="lat", lon="lon",
-                                    color="preco", size="area_util", size_max=20,
-                                    hover_data=["bairro", "preco", "area_util",
-                                                "quartos", "preco_m2", "endereco"],
-                                    color_continuous_scale="RdYlGn_r",
-                                    zoom=10.5, height=580, mapbox_style="carto-positron",
-                                    labels={"preco": "Preço (R$)"})
-            fig.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
-            st.plotly_chart(fig, use_container_width=True, key="fig_mapa", config=MAP_CONFIG)
-            _txt = (
-                f"🗺️ *Mapa de Imóveis — {filtro_label}*\n\n"
-                f"📍 {len(df_map)} imóveis mapeados no Distrito Federal\n"
-                f"💰 Preço médio: R$ {df_map['preco'].mean():,.0f}\n"
-                f"🏷️ R$/m² médio: R$ {df_map['preco_m2'].mean():,.0f}\n\n"
-                f"📊 ImobiFlow Dashboard"
-            )
-            chart_actions(fig, "mapa_imoveis", _txt, "📲 Compartilhar dados do mapa no WhatsApp")
+            df_tabela = dff
+            st.subheader(f"📋 Todos os imóveis ({len(dff):,})")
 
-    # ── Sub-aba: Tabela ────────────────────────────────────────────────────────
-    with sub_tabela:
-        st.subheader("📋 Tabela Detalhada")
-        cols_tab = [c for c in ["bairro", "preco", "area_util", "preco_m2",
-                                 "quartos", "banheiros", "endereco", "corretor", "url"]
-                    if c in dff.columns]
-        df_tab = dff[cols_tab].copy()
-        df_tab["preco"]     = df_tab["preco"].apply(fmt_moeda)
-        df_tab["preco_m2"]  = df_tab["preco_m2"].apply(fmt_moeda)
-        df_tab["area_util"] = df_tab["area_util"].apply(fmt_area)
-        df_tab["quartos"]   = df_tab["quartos"].apply(fmt_int)
-        df_tab["banheiros"] = df_tab["banheiros"].apply(fmt_int)
-        df_tab = df_tab.rename(columns={
-            "bairro":    "Bairro",    "preco":     "Preço (R$)",
-            "area_util": "Área (m²)", "preco_m2":  "R$/m²",
-            "quartos":   "Quartos",   "banheiros": "Banheiros",
-            "endereco":  "Endereço",  "corretor":  "Corretor/Imobiliária",
-            "url":       "🔗 Ver no DFImóveis",
-        })
-        st.dataframe(df_tab, use_container_width=True, hide_index=True, height=520,
-                     column_config={"🔗 Ver no DFImóveis": st.column_config.LinkColumn(
-                         display_text="🏠 Abrir anúncio")})
+        montar_grid(df_tabela, key_prefix="mapa_tab",
+                    cols_base=["bairro", "preco", "area_util", "preco_m2",
+                               "quartos", "banheiros", "endereco", "corretor", "url"],
+                    altura=460)
 
-        _melhores = dff.dropna(subset=["preco_m2", "url"]).sort_values("preco_m2").head(5)
+        # WhatsApp melhores ofertas da seleção atual
+        _melhores = df_tabela.dropna(subset=["preco_m2", "url"]).sort_values("preco_m2").head(5)
         if not _melhores.empty:
             _linhas = "\n".join(
                 f"{i+1}. {r['bairro']} | {int(r['quartos']) if pd.notna(r['quartos']) else '?'}q "
@@ -480,54 +559,49 @@ with tab_opor:
         df_apto_capt["Bloco"]    = df_apto_capt.apply(lambda r: _extrair_referencia(r, _RE_BLOCO), axis=1)
         df_casa_capt["Conjunto"] = df_casa_capt.apply(lambda r: _extrair_referencia(r, _RE_CONJUNTO), axis=1)
 
-        _COLS_CAPT = ["bairro", "preco", "area_util", "preco_m2",
-                      "quartos", "banheiros", "endereco", "corretor", "url"]
-
-        def _montar_grid_capt(df_raw, col_extra: str):
-            if df_raw.empty:
-                st.info("Nenhum imóvel encontrado com os filtros atuais.")
-                return
-            cols  = [c for c in _COLS_CAPT if c in df_raw.columns]
-            df_g  = df_raw[cols + [col_extra]].copy()
-            df_g["preco"]     = df_g["preco"].apply(fmt_moeda)
-            df_g["preco_m2"]  = df_g["preco_m2"].apply(fmt_moeda)
-            df_g["area_util"] = df_g["area_util"].apply(fmt_area)
-            df_g["quartos"]   = df_g["quartos"].apply(fmt_int)
-            df_g["banheiros"] = df_g["banheiros"].apply(fmt_int)
-            df_g = df_g.rename(columns={
-                "bairro":    "Bairro",    "preco":     "Preço (R$)",
-                "area_util": "Área (m²)", "preco_m2":  "R$/m²",
-                "quartos":   "Quartos",   "banheiros": "Banheiros",
-                "endereco":  "Endereço",  "corretor":  "Corretor/Imobiliária",
-                "url":       "🔗 Ver anúncio",
-            })
-            cols_ordem = [col_extra, "Bairro", "Endereço", "Preço (R$)", "R$/m²",
-                          "Área (m²)", "Quartos", "Banheiros", "Corretor/Imobiliária", "🔗 Ver anúncio"]
-            df_g = df_g[[c for c in cols_ordem if c in df_g.columns]]
-            st.dataframe(df_g, use_container_width=True, hide_index=True, height=460,
-                         column_config={"🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir")})
-            _top5 = df_raw.dropna(subset=["preco_m2"]).sort_values("preco_m2").head(5)
-            if not _top5.empty:
-                _tipo_label = "Apartamentos" if col_extra == "Bloco" else "Casas"
-                _linhas = "\n".join(
-                    f"{i+1}. {r['bairro']} | {r.get(col_extra, '')} | "
-                    f"R$ {r['preco']:,.0f} | {r['url']}"
-                    for i, (_, r) in enumerate(_top5.iterrows())
-                )
-                wa_button(
-                    f"🎯 *Oportunidades de Captação — {_tipo_label}*\n📍 {filtro_label}\n\n"
-                    f"{_linhas}\n\n📊 ImobiFlow Dashboard",
-                    f"📲 Compartilhar oportunidades ({_tipo_label}) no WhatsApp"
-                )
-
         _tipo_apto, _tipo_casa = st.tabs([
             f"🏢 Apartamentos ({len(df_apto_capt)})",
             f"🏠 Casas ({len(df_casa_capt)})",
         ])
+
+        _COLS_CAPT = ["bairro", "preco", "area_util", "preco_m2",
+                      "quartos", "banheiros", "endereco", "corretor", "url"]
+
         with _tipo_apto:
-            _montar_grid_capt(df_apto_capt, "Bloco")
+            if df_apto_capt.empty:
+                st.info("Nenhum imóvel encontrado com os filtros atuais.")
+            else:
+                montar_grid(df_apto_capt, "capt_apto", _COLS_CAPT, col_extra="Bloco", altura=460)
+                _top5 = df_apto_capt.dropna(subset=["preco_m2"]).sort_values("preco_m2").head(5)
+                if not _top5.empty:
+                    _linhas = "\n".join(
+                        f"{i+1}. {r['bairro']} | {r.get('Bloco','')} | "
+                        f"R$ {r['preco']:,.0f} | {r['url']}"
+                        for i, (_, r) in enumerate(_top5.iterrows())
+                    )
+                    wa_button(
+                        f"🎯 *Oportunidades de Captação — Apartamentos*\n📍 {filtro_label}\n\n"
+                        f"{_linhas}\n\n📊 ImobiFlow Dashboard",
+                        "📲 Compartilhar oportunidades (Aptos) no WhatsApp"
+                    )
+
         with _tipo_casa:
-            _montar_grid_capt(df_casa_capt, "Conjunto")
+            if df_casa_capt.empty:
+                st.info("Nenhum imóvel encontrado com os filtros atuais.")
+            else:
+                montar_grid(df_casa_capt, "capt_casa", _COLS_CAPT, col_extra="Conjunto", altura=460)
+                _top5 = df_casa_capt.dropna(subset=["preco_m2"]).sort_values("preco_m2").head(5)
+                if not _top5.empty:
+                    _linhas = "\n".join(
+                        f"{i+1}. {r['bairro']} | {r.get('Conjunto','')} | "
+                        f"R$ {r['preco']:,.0f} | {r['url']}"
+                        for i, (_, r) in enumerate(_top5.iterrows())
+                    )
+                    wa_button(
+                        f"🎯 *Oportunidades de Captação — Casas*\n📍 {filtro_label}\n\n"
+                        f"{_linhas}\n\n📊 ImobiFlow Dashboard",
+                        "📲 Compartilhar oportunidades (Casas) no WhatsApp"
+                    )
 
     # ── Sub-aba: Venda ─────────────────────────────────────────────────────────
     with sub_venda:
@@ -572,33 +646,9 @@ with tab_opor:
             _cols_v = ["bairro", "preco", "area_util", "preco_m2",
                        "media_m2_bairro", "var_vs_media_pct",
                        "quartos", "banheiros", "endereco", "corretor", "url"]
-            df_gv = df_venda[[c for c in _cols_v if c in df_venda.columns]].copy()
-            df_gv["preco"]           = df_gv["preco"].apply(fmt_moeda)
-            df_gv["area_util"]       = df_gv["area_util"].apply(fmt_area)
-            df_gv["preco_m2"]        = df_gv["preco_m2"].apply(fmt_moeda)
-            df_gv["media_m2_bairro"] = df_gv["media_m2_bairro"].apply(fmt_moeda)
-            df_gv["var_vs_media_pct"]= df_gv["var_vs_media_pct"].apply(
-                lambda v: f"{v:+.1f}%" if pd.notna(v) else "—"
-            )
-            df_gv["quartos"]   = df_gv["quartos"].apply(fmt_int)
-            df_gv["banheiros"] = df_gv["banheiros"].apply(fmt_int)
-            df_gv = df_gv.rename(columns={
-                "bairro":           "Bairro",
-                "preco":            "Preço (R$)",
-                "area_util":        "Área (m²)",
-                "preco_m2":         "R$/m²",
-                "media_m2_bairro":  "Média R$/m² Bairro",
-                "var_vs_media_pct": "vs. Média",
-                "quartos":          "Quartos",
-                "banheiros":        "Banheiros",
-                "endereco":         "Endereço",
-                "corretor":         "Corretor/Imobiliária",
-                "url":              "🔗 Ver anúncio",
-            })
-            st.dataframe(df_gv, use_container_width=True, hide_index=True, height=520,
-                         column_config={"🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir")})
+            montar_grid(df_venda, "venda", _cols_v, altura=520)
 
-            _top5v   = df_venda.head(5)
+            _top5v    = df_venda.head(5)
             _linhas_v = "\n".join(
                 f"{i+1}. {r['bairro']} | R$/m² {r['preco_m2']:,.0f} "
                 f"({r['var_vs_media_pct']:+.1f}% vs média) | R$ {r['preco']:,.0f}\n   🔗 {r['url']}"
