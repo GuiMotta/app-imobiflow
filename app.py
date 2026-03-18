@@ -174,7 +174,7 @@ def carregar_dados():
             corretor_imobiliaria                                AS corretor,
             endereco_site                                       AS endereco,
             titulo_vitrine,
-            descricao,
+            LEFT(descricao, 300) AS descricao,
             url,
             CAST(coordenadas_oficiais.lat AS DOUBLE)            AS lat,
             CAST(coordenadas_oficiais.lon AS DOUBLE)            AS lon,
@@ -199,8 +199,16 @@ def carregar_dados():
         st.stop()
 
     cols = [c.name for c in resp.manifest.schema.columns]
-    rows = resp.result.data_array or []
-    df   = pd.DataFrame(rows, columns=cols)
+    # Coleta TODOS os chunks (primeiro vem no resp.result)
+    rows = list(resp.result.data_array or [])
+    total_chunks = resp.manifest.total_chunk_count or 1
+    if total_chunks > 1:
+        for idx in range(1, total_chunks):
+            chunk = w.statement_execution.get_statement_result_chunk_n(
+                resp.statement_id, idx
+            )
+            rows.extend(chunk.data_array or [])
+    df = pd.DataFrame(rows, columns=cols)
 
     for col in ["preco", "area_util", "quartos", "banheiros",
                 "condominio", "iptu", "lat", "lon", "preco_m2"]:
