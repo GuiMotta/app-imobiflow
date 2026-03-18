@@ -47,9 +47,13 @@ def wa_button(texto: str, label: str = "📲 Compartilhar no WhatsApp"):
         unsafe_allow_html=True
     )
 
-def fmt_moeda(v):  return f"R$ {v:,.0f}"  if pd.notna(v) and v > 0 else "—"
-def fmt_area(v):   return f"{v:,.0f} m²"  if pd.notna(v) and v > 0 else "—"
-def fmt_int(v):    return str(int(v))      if pd.notna(v) and v > 0 else "—"
+def _br(v):
+    """Formata número inteiro no padrão brasileiro: 1.099.758"""
+    return f"{v:,.0f}".replace(",", ".")
+
+def fmt_moeda(v):  return f"R$ {_br(v)}"   if pd.notna(v) and v > 0 else "—"
+def fmt_area(v):   return f"{_br(v)} m²"   if pd.notna(v) and v > 0 else "—"
+def fmt_int(v):    return str(int(v))       if pd.notna(v) and v > 0 else "—"
 
 def wa_imovel_link(url):
     """Gera link wa.me com a URL do imóvel pré-preenchida."""
@@ -304,17 +308,17 @@ tab_mercado, tab_mapa, tab_opor = st.tabs([
 with tab_mercado:
     # ── KPIs do mercado ──────────────────────────────────────────────────────
     k1, k2, k3, k4 = st.columns(4)
-    k1.metric("📋 Total Imóveis", f"{len(dff):,}")
-    k2.metric("💰 Preço Médio",   f"R$ {dff['preco'].mean():,.0f}")
-    k3.metric("📐 Área Média",    f"{dff['area_util'].mean():,.0f} m²")
-    k4.metric("🏷️ R$/m² Médio",   f"R$ {dff['preco_m2'].mean():,.0f}")
+    k1.metric("📋 Total Imóveis", f"{len(dff):,}".replace(",", "."))
+    k2.metric("💰 Preço Médio",   f"R$ {_br(dff['preco'].mean())}")
+    k3.metric("📐 Área Média",    f"{_br(dff['area_util'].mean())} m²")
+    k4.metric("🏷️ R$/m² Médio",   f"R$ {_br(dff['preco_m2'].mean())}")
 
     _txt_kpi = (
         f"🏠 *Mercado Imobiliário — {filtro_label}*\n\n"
-        f"📋 Total de imóveis: {len(dff):,}\n"
-        f"💰 Preço médio: R$ {dff['preco'].mean():,.0f}\n"
-        f"📐 Área média: {dff['area_util'].mean():,.0f} m²\n"
-        f"🏷️ R$/m² médio: R$ {dff['preco_m2'].mean():,.0f}\n\n"
+        f"📋 Total de imóveis: {_br(len(dff))}\n"
+        f"💰 Preço médio: R$ {_br(dff['preco'].mean())}\n"
+        f"📐 Área média: {_br(dff['area_util'].mean())} m²\n"
+        f"🏷️ R$/m² médio: R$ {_br(dff['preco_m2'].mean())}\n\n"
         f"📊 Dados atualizados via ImobiFlow Dashboard"
     )
     wa_button(_txt_kpi, "📲 Compartilhar resumo do mercado no WhatsApp")
@@ -378,7 +382,7 @@ with tab_mercado:
         st.subheader("💵 Preço Médio por Bairro (Top 15)")
         avg = (dff.groupby("bairro")["preco"].mean()
                   .sort_values(ascending=False).head(15).reset_index())
-        avg["label"] = avg["preco"].apply(lambda x: f"R$ {x:,.0f}")
+        avg["label"] = avg["preco"].apply(lambda x: f"R$ {_br(x)}")
         fig = px.bar(avg, x="preco", y="bairro", orientation="h", text="label",
                      color="preco", color_continuous_scale="Blues",
                      labels={"preco": "Preço Médio (R$)", "bairro": "Bairro"})
@@ -389,7 +393,7 @@ with tab_mercado:
         _top5 = avg.head(5)
         _txt = (
             f"💵 *Preço Médio por Bairro — Top 5*\n📍 {filtro_label}\n\n"
-            + "\n".join(f"{i+1}. {r['bairro']}: R$ {r['preco']:,.0f}" for i, r in _top5.iterrows())
+            + "\n".join(f"{i+1}. {r['bairro']}: R$ {_br(r['preco'])}" for i, r in _top5.iterrows())
             + "\n\n📊 ImobiFlow Dashboard"
         )
         chart_actions(fig, "preco_por_bairro", _txt)
@@ -405,11 +409,11 @@ with tab_mercado:
         _p75 = dff["preco"].quantile(0.75)
         _txt = (
             f"📊 *Distribuição de Preços — {filtro_label}*\n\n"
-            f"💰 Mínimo: R$ {dff['preco'].min():,.0f}\n"
-            f"💰 25%: R$ {_p25:,.0f}\n"
-            f"💰 Mediana: R$ {dff['preco'].median():,.0f}\n"
-            f"💰 75%: R$ {_p75:,.0f}\n"
-            f"💰 Máximo: R$ {dff['preco'].max():,.0f}\n\n"
+            f"💰 Mínimo: R$ {_br(dff['preco'].min())}\n"
+            f"💰 25%: R$ {_br(_p25)}\n"
+            f"💰 Mediana: R$ {_br(dff['preco'].median())}\n"
+            f"💰 75%: R$ {_br(_p75)}\n"
+            f"💰 Máximo: R$ {_br(dff['preco'].max())}\n\n"
             f"📊 ImobiFlow Dashboard"
         )
         chart_actions(fig, "distribuicao_precos", _txt)
@@ -427,9 +431,9 @@ with tab_mercado:
         st.plotly_chart(fig, use_container_width=True, key="fig_area_preco", config=CHART_CONFIG)
         _txt = (
             f"📐 *Área Útil × Preço — {filtro_label}*\n\n"
-            f"📐 Área mínima: {dff['area_util'].min():,.0f} m²\n"
-            f"📐 Área média: {dff['area_util'].mean():,.0f} m²\n"
-            f"📐 Área máxima: {dff['area_util'].max():,.0f} m²\n\n"
+            f"📐 Área mínima: {_br(dff['area_util'].min())} m²\n"
+            f"📐 Área média: {_br(dff['area_util'].mean())} m²\n"
+            f"📐 Área máxima: {_br(dff['area_util'].max())} m²\n\n"
             f"📊 ImobiFlow Dashboard"
         )
         chart_actions(fig, "area_vs_preco", _txt)
@@ -459,7 +463,7 @@ with tab_mercado:
         st.subheader("🏷️ R$/m² Médio por Bairro (Top 15)")
         avg_m2 = (dff.groupby("bairro")["preco_m2"].mean()
                      .sort_values(ascending=False).head(15).reset_index())
-        avg_m2["label"] = avg_m2["preco_m2"].apply(lambda x: f"R$ {x:,.0f}")
+        avg_m2["label"] = avg_m2["preco_m2"].apply(lambda x: f"R$ {_br(x)}")
         fig = px.bar(avg_m2, x="preco_m2", y="bairro", orientation="h", text="label",
                      color="preco_m2", color_continuous_scale="Oranges",
                      labels={"preco_m2": "R$/m²", "bairro": "Bairro"})
@@ -470,7 +474,7 @@ with tab_mercado:
         _top5_m2 = avg_m2.head(5)
         _txt = (
             f"🏷️ *R$/m² Médio por Bairro — Top 5*\n📍 {filtro_label}\n\n"
-            + "\n".join(f"{i+1}. {r['bairro']}: R$ {r['preco_m2']:,.0f}/m²"
+            + "\n".join(f"{i+1}. {r['bairro']}: R$ {_br(r['preco_m2'])}/m²"
                         for i, r in _top5_m2.iterrows())
             + "\n\n📊 ImobiFlow Dashboard"
         )
@@ -489,7 +493,7 @@ with tab_mercado:
                     .groupby("quartos")["preco"].median().sort_index())
         _txt = (
             f"📦 *Preço Mediano por Nº de Quartos — {filtro_label}*\n\n"
-            + "\n".join(f"  {int(q)} quartos: R$ {v:,.0f}" for q, v in _medians.items())
+            + "\n".join(f"  {int(q)} quartos: R$ {_br(v)}" for q, v in _medians.items())
             + "\n\n📊 ImobiFlow Dashboard"
         )
         chart_actions(fig, "boxplot_preco_quartos", _txt)
@@ -536,8 +540,8 @@ with tab_mapa:
         _txt_mapa = (
             f"🗺️ *Mapa de Imóveis — {filtro_label}*\n\n"
             f"📍 {len(df_map)} imóveis mapeados no Distrito Federal\n"
-            f"💰 Preço médio: R$ {df_map['preco'].mean():,.0f}\n"
-            f"🏷️ R$/m² médio: R$ {df_map['preco_m2'].mean():,.0f}\n\n"
+            f"💰 Preço médio: R$ {_br(df_map['preco'].mean())}\n"
+            f"🏷️ R$/m² médio: R$ {_br(df_map['preco_m2'].mean())}\n\n"
             f"📊 ImobiFlow Dashboard"
         )
         chart_actions(fig_map, "mapa_imoveis", _txt_mapa,
@@ -578,7 +582,7 @@ with tab_mapa:
         if not _melhores.empty:
             _linhas = "\n".join(
                 f"{i+1}. {r['bairro']} | {int(r['quartos']) if pd.notna(r['quartos']) else '?'}q "
-                f"| R$ {r['preco']:,.0f} | R$/m² {r['preco_m2']:,.0f}\n   🔗 {r['url']}"
+                f"| R$ {_br(r['preco'])} | R$/m² {_br(r['preco_m2'])}\n   🔗 {r['url']}"
                 for i, (_, r) in enumerate(_melhores.iterrows())
             )
             wa_button(
@@ -647,7 +651,7 @@ with tab_opor:
                 if not _top5.empty:
                     _linhas = "\n".join(
                         f"{i+1}. {r['bairro']} | {r.get('Bloco','')} | "
-                        f"R$ {r['preco']:,.0f} | {r['url']}"
+                        f"R$ {_br(r['preco'])} | {r['url']}"
                         for i, (_, r) in enumerate(_top5.iterrows())
                     )
                     wa_button(
@@ -665,7 +669,7 @@ with tab_opor:
                 if not _top5.empty:
                     _linhas = "\n".join(
                         f"{i+1}. {r['bairro']} | {r.get('Conjunto','')} | "
-                        f"R$ {r['preco']:,.0f} | {r['url']}"
+                        f"R$ {_br(r['preco'])} | {r['url']}"
                         for i, (_, r) in enumerate(_top5.iterrows())
                     )
                     wa_button(
@@ -707,7 +711,7 @@ with tab_opor:
         _kv1.metric("📋 Oportunidades", f"{len(df_venda):,}")
         if not df_venda.empty:
             _kv2.metric("🏷️ Maior desconto", f"{df_venda['var_vs_media_pct'].min():+.1f}%")
-            _kv3.metric("💰 Menor R$/m²",    f"R$ {df_venda['preco_m2'].min():,.0f}")
+            _kv3.metric("💰 Menor R$/m²",    f"R$ {_br(df_venda['preco_m2'].min())}")
 
         st.write("")
 
@@ -721,8 +725,8 @@ with tab_opor:
 
             _top5v    = df_venda.head(5)
             _linhas_v = "\n".join(
-                f"{i+1}. {r['bairro']} | R$/m² {r['preco_m2']:,.0f} "
-                f"({r['var_vs_media_pct']:+.1f}% vs média) | R$ {r['preco']:,.0f}\n   🔗 {r['url']}"
+                f"{i+1}. {r['bairro']} | R$/m² {_br(r['preco_m2'])} "
+                f"({r['var_vs_media_pct']:+.1f}% vs média) | R$ {_br(r['preco'])}\n   🔗 {r['url']}"
                 for i, (_, r) in enumerate(_top5v.iterrows())
             )
             wa_button(
