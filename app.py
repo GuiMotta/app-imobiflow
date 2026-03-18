@@ -47,8 +47,8 @@ def wa_button(texto: str, label: str = "📲 Compartilhar no WhatsApp"):
         unsafe_allow_html=True
     )
 
-# Config Plotly: desabilita zoom/pan nos gráficos (exceto mapa)
-CHART_CONFIG = {"staticPlot": True}
+# Config Plotly: esconde barra de ferramentas mas mantém zoom/pan
+CHART_CONFIG = {"displayModeBar": False}
 MAP_CONFIG   = {"scrollZoom": True, "displayModeBar": False}
 
 def chart_actions(fig, filename: str, wa_texto: str, wa_label: str = "📲 Compartilhar no WhatsApp"):
