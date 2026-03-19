@@ -437,14 +437,9 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
                 with _cols_foto[i % 3]:
                     st.image(foto_url, use_container_width=True)
 
-    # ── Links ──
-    _maps_search = _maps_url(_r)
-    _lnk1, _lnk2 = st.columns(2)
-    with _lnk1:
-        if pd.notna(_r.get("url")):
-            st.link_button("🏠 Ver anúncio original", _r["url"], use_container_width=True)
-    with _lnk2:
-        st.link_button("📍 Ver no Google Maps", _maps_search, use_container_width=True)
+    # ── Link ──
+    if pd.notna(_r.get("url")):
+        st.link_button("🏠 Ver anúncio original", _r["url"], use_container_width=False)
 
     st.divider()
     st.caption(f"👤 Corretor: {_r.get('corretor', '—')} | 📅 Cadastro: {_r.get('data_cadastro', '—')} | ⚙️ Status: {_r.get('status', '—')}")
