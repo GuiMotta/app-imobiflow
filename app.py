@@ -512,6 +512,9 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
             pdf.set_auto_page_break(auto=True, margin=20)
             pdf.add_page()
 
+            # Espaço superior para centralizar visualmente o conteúdo
+            pdf.ln(35)
+
             # ── Cabeçalho elegante ──
             pdf.set_font("Montserrat", "B", 22)
             pdf.set_text_color(30, 30, 30)
