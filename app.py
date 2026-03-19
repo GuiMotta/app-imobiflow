@@ -512,12 +512,6 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
                         except Exception:
                             pass
 
-                # Rodapé
-                pdf.ln(10)
-                pdf.set_font("Helvetica", "I", 8)
-                pdf.set_text_color(150, 150, 150)
-                pdf.cell(0, 5, "Gerado por ImobiFlow", new_x="LMARGIN", new_y="NEXT")
-
                 return pdf.output()
 
             if st.button("📄 Gerar PDF (Pitch + Fotos)", use_container_width=True):
