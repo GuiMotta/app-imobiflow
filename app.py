@@ -1,6 +1,7 @@
 import urllib.parse
 import datetime
 import re
+import requests as req_http
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -344,6 +345,112 @@ if "imovel" in _qp:
         if pd.notna(_r.get("url")):
             _wa = wa_link(f"Confira este imóvel: {_r['url']}")
             st.link_button("📲 Compartilhar no WhatsApp", _wa, use_container_width=True)
+
+    st.divider()
+
+    # ── 🤖 Pitch com IA (Groq) — sob demanda ──
+    st.subheader("🤖 Pitch Inteligente para WhatsApp")
+    st.caption("Gere um texto persuasivo para compartilhar este imóvel via WhatsApp usando IA.")
+
+    def gerar_pitch_ia(dados_imovel):
+        """Chama a API Groq para gerar pitch de WhatsApp."""
+        groq_key = st.secrets.get("GROQ_API_KEY", "")
+        if not groq_key:
+            return "❌ Chave da API Groq não configurada. Adicione GROQ_API_KEY nos Secrets."
+
+        descricao = str(dados_imovel.get("descricao") or "")
+        titulo = str(dados_imovel.get("titulo_vitrine") or "")
+        bairro = str(dados_imovel.get("bairro") or "")
+        endereco = str(dados_imovel.get("endereco") or "")
+        preco = dados_imovel.get("preco")
+        area = dados_imovel.get("area_util")
+        quartos = dados_imovel.get("quartos")
+        suites = dados_imovel.get("suites")
+        vagas = dados_imovel.get("vagas")
+        url_anuncio = str(dados_imovel.get("url") or "")
+
+        ficha_tecnica = f"""
+Título: {titulo}
+Bairro: {bairro}
+Endereço: {endereco}
+Preço: R$ {_br(preco) if preco else 'Não informado'}
+Área: {_br(area) if area else 'Não informada'} m²
+Quartos: {quartos or 'N/I'} | Suítes: {suites or 'N/I'} | Vagas: {vagas or 'N/I'}
+Link: {url_anuncio}
+Descrição do anúncio: {descricao[:1500]}
+""".strip()
+
+        system_prompt = (
+            "Atue como um redator publicitário de alto nível no mercado imobiliário de Brasília-DF. "
+            "Sua tarefa é criar uma mensagem de WhatsApp persuasiva de 6 a 8 linhas oferecendo este imóvel. "
+            "REGRA DE AUDITORIA LÓGICA (CRÍTICO): Leia o texto com extrema atenção. "
+            "Se houver contradições (ex: cabeçalho diz 'casa térrea' mas texto menciona 'pavimento superior'), "
+            "PRIORIZE a realidade da descrição detalhada. Nunca propague informações falsas. "
+            "REGRAS DE EXCLUSÃO: Ignore lixo de site ('Ligue Agora', 'Simule Financiamento'), "
+            "avisos jurídicos, telefones e nomes de corretores/CRECI. "
+            "REGRAS DE INCLUSÃO: Destaque o Tipo real do imóvel, Condomínio/Bairro EXATO se mencionado, "
+            "e os diferenciais reais de maior valor (ex: energia fotovoltaica, reformado, vista privilegiada). "
+            "INCLUA o preço formatado e o link do anúncio no final. "
+            "Use no máximo 3 emojis. Vá direto ao ponto. Formato: texto pronto para copiar e colar no WhatsApp."
+        )
+
+        payload = {
+            "model": "llama-3.3-70b-versatile",
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": f"Ficha técnica e descrição do imóvel:\n\n{ficha_tecnica}"}
+            ],
+            "temperature": 0.15,
+            "max_tokens": 500,
+        }
+
+        try:
+            resp = req_http.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {groq_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=20,
+            )
+            if resp.status_code == 200:
+                return resp.json()["choices"][0]["message"]["content"].strip()
+            else:
+                return f"❌ Erro API ({resp.status_code}): {resp.text[:200]}"
+        except Exception as e:
+            return f"❌ Erro de conexão: {str(e)}"
+
+    # Botão para gerar pitch
+    if st.button("🤖 Gerar Pitch com IA", use_container_width=True, type="primary"):
+        with st.spinner("✨ Gerando pitch inteligente..."):
+            _pitch = gerar_pitch_ia(_r.to_dict())
+        st.session_state["pitch_gerado"] = _pitch
+
+    # Exibir pitch gerado
+    if "pitch_gerado" in st.session_state:
+        _pitch = st.session_state["pitch_gerado"]
+        st.text_area("📝 Pitch gerado:", _pitch, height=200)
+
+        # Montar mensagem WhatsApp com fotos
+        _fotos_raw = _r.get("fotos_urls", "")
+        _fotos_wa = [f.strip() for f in str(_fotos_raw).split("|") if f.strip().startswith("http")] if pd.notna(_fotos_raw) else []
+        _msg_wa = _pitch
+        if _fotos_wa:
+            _msg_wa += "\n\n📸 Fotos:\n" + "\n".join(_fotos_wa[:5])
+
+        _wa_pitch = wa_link(_msg_wa)
+
+        _c1, _c2 = st.columns(2)
+        with _c1:
+            st.link_button("📲 Enviar Pitch via WhatsApp", _wa_pitch, use_container_width=True, type="primary")
+        with _c2:
+            st.link_button(
+                "📲 WhatsApp sem fotos",
+                wa_link(_pitch),
+                use_container_width=True,
+            )
+        st.caption("💡 Dica: O link com fotos pode ficar longo. Se preferir, envie sem fotos e anexe as imagens manualmente.")
 
     st.divider()
     st.caption(f"👤 Corretor: {_r.get('corretor', '—')} | 📅 Cadastro: {_r.get('data_cadastro', '—')} | ⚙️ Status: {_r.get('status', '—')}")
