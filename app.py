@@ -12,6 +12,24 @@ st.set_page_config(
     layout="wide"
 )
 
+# ── Autenticação simples ────────────────────────────────────────────────────
+def check_password():
+    if st.session_state.get("authenticated"):
+        return True
+    with st.container():
+        st.markdown("## 🔐 ImobiFlow — Acesso Restrito")
+        pwd = st.text_input("Senha de acesso", type="password", key="pwd_input")
+        if st.button("Entrar", use_container_width=False):
+            if pwd == st.secrets["APP_PASSWORD"]:
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("Senha incorreta.")
+    return False
+
+if not check_password():
+    st.stop()
+
 st.markdown("""
 <style>
 [data-testid="metric-container"] {
