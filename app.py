@@ -138,9 +138,7 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
 # ── Supabase PostgreSQL ───────────────────────────────────────────────────────
 @st.cache_resource
 def get_connection_string():
-    return st.secrets.get("DATABASE_URL",
-        "postgresql://postgres.lsfgupsxuqnrljegwwsg:ZRiiG1ld8qwb3omq@aws-1-sa-east-1.pooler.supabase.com:6543/postgres"
-    )
+    return st.secrets["DATABASE_URL"]
 
 # ── Carregamento de dados ─────────────────────────────────────────────────────
 @st.cache_data(ttl=900)
