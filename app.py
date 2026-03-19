@@ -78,6 +78,19 @@ def wa_imovel_link(url):
         return wa_link(f"Confira este imóvel: {url}")
     return ""
 
+def google_sv_link(row):
+    """Gera link do Google Street View usando lat/lon ou endereço."""
+    lat, lon = row.get("lat"), row.get("lon")
+    if pd.notna(lat) and pd.notna(lon) and lat != 0 and lon != 0:
+        return f"https://www.google.com/maps/@{lat},{lon},3a,75y,90t/data=!3m6!1e1!3m4!1s!2e0!7i16384!8i8192"
+    # Fallback: endereço + bairro
+    end = str(row.get("endereco") or "")
+    bairro = str(row.get("bairro") or "")
+    if end or bairro:
+        q = urllib.parse.quote(f"{end}, {bairro}, Brasília DF")
+        return f"https://www.google.com/maps/search/{q}"
+    return ""
+
 CHART_CONFIG = {"displayModeBar": "hover"}   # barra aparece ao passar o mouse
 MAP_CONFIG   = {"scrollZoom": True, "displayModeBar": False}  # mapa sem barra (ocupa espaço)
 
@@ -94,20 +107,35 @@ def chart_actions(fig, filename: str, wa_texto: str, wa_label: str = "📲 Compa
     except Exception:
         wa_button(wa_texto, wa_label)
 
-def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=480):
+def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=480,
+                show_street_view=False):
     """
     Monta grid com colunas formatadas + coluna WhatsApp por imóvel.
     col_extra: nome de coluna extra (ex: 'Bloco', 'Conjunto') a inserir no início.
+    show_street_view: se True, adiciona coluna com link do Google Street View.
     """
     if cols_base is None:
         cols_base = ["bairro", "preco", "area_util", "preco_m2",
                      "quartos", "banheiros", "endereco", "corretor", "url"]
 
     cols = [c for c in cols_base if c in df_raw.columns]
-    df_g = df_raw[cols + ([col_extra] if col_extra and col_extra in df_raw.columns else [])].copy()
+    # Incluir lat/lon no copy para gerar link Street View
+    _extra_cols = []
+    if show_street_view:
+        for _c in ("lat", "lon"):
+            if _c in df_raw.columns and _c not in cols:
+                _extra_cols.append(_c)
+    df_g = df_raw[cols + _extra_cols + ([col_extra] if col_extra and col_extra in df_raw.columns else [])].copy()
 
     # Coluna WhatsApp por imóvel (antes de renomear)
     df_g["📲 WA"] = df_g["url"].apply(wa_imovel_link) if "url" in df_g.columns else ""
+
+    # Coluna Google Street View
+    if show_street_view:
+        df_g["📍 Street View"] = df_raw.apply(google_sv_link, axis=1)
+        # Remove colunas auxiliares lat/lon do grid
+        for _c in _extra_cols:
+            df_g.drop(columns=[_c], inplace=True, errors="ignore")
 
     # Formatações numéricas
     for c, fn in [("preco", fmt_moeda), ("preco_m2", fmt_moeda),
@@ -138,19 +166,24 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
     # Ordem das colunas
     prioridade = ([col_extra] if col_extra else []) + [
         "Bairro", "Endereço", "Preço (R$)", "R$/m²", "Média R$/m² Bairro", "vs. Média",
-        "Área (m²)", "Quartos", "Banheiros", "Corretor/Imobiliária", "🔗 Ver anúncio", "📲 WA"
+        "Área (m²)", "Quartos", "Banheiros", "Corretor/Imobiliária",
+        "📍 Street View", "🔗 Ver anúncio", "📲 WA"
     ]
     df_g = df_g[[c for c in prioridade if c in df_g.columns]]
+
+    _col_config = {
+        "🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir"),
+        "📲 WA":          st.column_config.LinkColumn(display_text="📲 WhatsApp"),
+    }
+    if "📍 Street View" in df_g.columns:
+        _col_config["📍 Street View"] = st.column_config.LinkColumn(display_text="📍 Ver local")
 
     st.dataframe(
         df_g,
         use_container_width=True,
         hide_index=True,
         height=altura,
-        column_config={
-            "🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir"),
-            "📲 WA":          st.column_config.LinkColumn(display_text="📲 WhatsApp"),
-        },
+        column_config=_col_config,
     )
 
 # ── Supabase PostgreSQL ───────────────────────────────────────────────────────
@@ -718,7 +751,7 @@ with tab_opor:
             if df_apto_capt.empty:
                 st.info("Nenhum imóvel encontrado com os filtros atuais.")
             else:
-                montar_grid(df_apto_capt, "capt_apto", _COLS_CAPT, col_extra="Bloco", altura=460)
+                montar_grid(df_apto_capt, "capt_apto", _COLS_CAPT, col_extra="Bloco", altura=460, show_street_view=True)
                 _top5 = df_apto_capt.dropna(subset=["preco_m2"]).sort_values("preco_m2").head(5)
                 if not _top5.empty:
                     _linhas = "\n".join(
@@ -736,7 +769,7 @@ with tab_opor:
             if df_casa_capt.empty:
                 st.info("Nenhum imóvel encontrado com os filtros atuais.")
             else:
-                montar_grid(df_casa_capt, "capt_casa", _COLS_CAPT, col_extra="Conjunto", altura=460)
+                montar_grid(df_casa_capt, "capt_casa", _COLS_CAPT, col_extra="Conjunto", altura=460, show_street_view=True)
                 _top5 = df_casa_capt.dropna(subset=["preco_m2"]).sort_values("preco_m2").head(5)
                 if not _top5.empty:
                     _linhas = "\n".join(
