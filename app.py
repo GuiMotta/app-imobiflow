@@ -16,10 +16,25 @@ st.set_page_config(
     layout="wide"
 )
 
-# ── Autenticação simples ────────────────────────────────────────────────────
+# ── Autenticação simples com token persistente via query param ──────────────
+import hashlib
+
+def _gerar_token():
+    """Gera token de sessão baseado na senha para validar entre abas."""
+    _pwd = st.secrets.get("APP_PASSWORD", "")
+    return hashlib.sha256(f"imobiflow_{_pwd}".encode()).hexdigest()[:16]
+
 def check_password():
+    # 1. Já autenticado nesta sessão
     if st.session_state.get("authenticated"):
         return True
+    # 2. Token válido na URL (veio de link de outra aba já autenticada)
+    _qp = st.query_params
+    _token_url = _qp.get("token", "")
+    if _token_url == _gerar_token():
+        st.session_state.authenticated = True
+        return True
+    # 3. Pedir senha
     with st.container():
         st.markdown("## 🔐 ImobiFlow — Acesso Restrito")
         pwd = st.text_input("Senha de acesso", type="password", key="pwd_input")
@@ -127,17 +142,20 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
     if not show_pitch and "url" in df_g.columns:
         df_g["📲 WA"] = df_g["url"].apply(wa_imovel_link)
 
+    # Token de autenticação para links que abrem em nova aba
+    _tk = _gerar_token()
+
     # Coluna 🤖 Pitch IA — abre página de detalhes com gerador de pitch (Mapa + Tabela)
     if show_pitch and "codigo_anuncio" in df_raw.columns:
         df_g["🤖 Pitch IA"] = df_raw["codigo_anuncio"].apply(
-            lambda c: f"https://imobiflow.streamlit.app/?imovel={c}" if pd.notna(c) else ""
+            lambda c: f"https://imobiflow.streamlit.app/?imovel={c}&token={_tk}" if pd.notna(c) else ""
         )
 
     # Coluna 📸 Detalhes + 📍 Street View — para captação (localizar o imóvel)
     if show_street_view:
         if "codigo_anuncio" in df_raw.columns:
             df_g["📸 Detalhes"] = df_raw["codigo_anuncio"].apply(
-                lambda c: f"https://imobiflow.streamlit.app/?captar={c}" if pd.notna(c) else ""
+                lambda c: f"https://imobiflow.streamlit.app/?captar={c}&token={_tk}" if pd.notna(c) else ""
             )
         df_g["📍 Street View"] = df_raw.apply(google_sv_link, axis=1)
 
