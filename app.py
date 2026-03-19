@@ -517,7 +517,7 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
                     self.set_y(-15)
                     self.set_font("Montserrat", "I", 8)
                     self.set_text_color(150, 150, 150)
-                    self.cell(0, 10, f"Página {self.page_no()}/{self.alias_nb_pages()}", align="C")
+                    self.cell(0, 10, f"Página {self.page_no()}/{{nb}}", align="C")
 
             pdf = PDFComPagina()
             pdf.alias_nb_pages()
