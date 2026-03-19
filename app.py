@@ -1,11 +1,14 @@
 import urllib.parse
 import datetime
 import re
+import io
+import tempfile
 import requests as req_http
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 import psycopg2
+from fpdf import FPDF
 
 st.set_page_config(
     page_title="ImobiFlow - Dashboard Imóveis DF",
@@ -422,8 +425,116 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
         st.text_area("📝 Pitch gerado:", _pitch, height=200)
 
         _wa_pitch = wa_link(_pitch)
-        st.link_button("📲 Enviar Pitch via WhatsApp", _wa_pitch, use_container_width=True, type="primary")
-        st.caption("Dica: envie as fotos do imóvel como anexo separado no WhatsApp para maior impacto.")
+
+        _btn1, _btn2 = st.columns(2)
+        with _btn1:
+            st.link_button("📲 Enviar Pitch via WhatsApp", _wa_pitch, use_container_width=True, type="primary")
+        with _btn2:
+            # Gerar PDF com pitch + fotos
+            _fotos_raw_pdf = _r.get("fotos_urls", "")
+            _fotos_pdf = [f.strip() for f in str(_fotos_raw_pdf).split("|") if f.strip() and f.strip().startswith("http")] if pd.notna(_fotos_raw_pdf) else []
+
+            def gerar_pdf_imovel(dados, pitch_text, fotos_list):
+                """Gera PDF com pitch + dados + fotos do imóvel."""
+                pdf = FPDF()
+                pdf.set_auto_page_break(auto=True, margin=15)
+                pdf.add_page()
+
+                # Título
+                pdf.set_font("Helvetica", "B", 18)
+                pdf.cell(0, 12, dados.get("titulo_vitrine", "Imovel"), new_x="LMARGIN", new_y="NEXT")
+                pdf.set_font("Helvetica", "", 10)
+                pdf.set_text_color(100, 100, 100)
+                _end = f"{dados.get('endereco', '')} - {dados.get('bairro', '')}, Brasilia - DF"
+                pdf.cell(0, 6, _end, new_x="LMARGIN", new_y="NEXT")
+                pdf.ln(5)
+
+                # Dados do imóvel
+                pdf.set_text_color(0, 0, 0)
+                pdf.set_font("Helvetica", "B", 12)
+                pdf.cell(0, 8, "Dados do Imovel", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_font("Helvetica", "", 10)
+
+                _preco = dados.get("preco")
+                _area = dados.get("area_util")
+                _pm2 = dados.get("preco_m2")
+                _dados_txt = []
+                if _preco: _dados_txt.append(f"Preco: R$ {_br(_preco)}")
+                if _area: _dados_txt.append(f"Area: {_br(_area)} m2")
+                if _pm2: _dados_txt.append(f"R$/m2: R$ {_br(_pm2)}")
+                _q = dados.get("quartos")
+                _s = dados.get("suites")
+                _v = dados.get("vagas")
+                _b = dados.get("banheiros")
+                _specs = []
+                if _q: _specs.append(f"{int(_q)} quartos")
+                if _s: _specs.append(f"{int(_s)} suites")
+                if _b: _specs.append(f"{int(_b)} banheiros")
+                if _v: _specs.append(f"{int(_v)} vagas")
+                if _specs: _dados_txt.append(" | ".join(_specs))
+
+                for linha in _dados_txt:
+                    pdf.cell(0, 6, linha, new_x="LMARGIN", new_y="NEXT")
+                pdf.ln(5)
+
+                # Pitch
+                pdf.set_font("Helvetica", "B", 12)
+                pdf.cell(0, 8, "Apresentacao", new_x="LMARGIN", new_y="NEXT")
+                pdf.set_font("Helvetica", "", 10)
+                # Limpar caracteres problemáticos para latin-1
+                _pitch_clean = pitch_text.encode("latin-1", errors="replace").decode("latin-1")
+                pdf.multi_cell(0, 6, _pitch_clean)
+                pdf.ln(5)
+
+                # Fotos
+                if fotos_list:
+                    pdf.set_font("Helvetica", "B", 12)
+                    pdf.cell(0, 8, "Fotos", new_x="LMARGIN", new_y="NEXT")
+                    pdf.ln(3)
+
+                    for i, foto_url in enumerate(fotos_list[:8]):
+                        try:
+                            resp = req_http.get(foto_url, timeout=10)
+                            if resp.status_code == 200:
+                                # Salvar em arquivo temporário
+                                suffix = ".jpg"
+                                if "png" in foto_url.lower(): suffix = ".png"
+                                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                                    tmp.write(resp.content)
+                                    tmp_path = tmp.name
+
+                                # Verificar se cabe na página
+                                if pdf.get_y() > 200:
+                                    pdf.add_page()
+
+                                pdf.image(tmp_path, x=10, w=90)
+                                pdf.ln(3)
+                        except Exception:
+                            pass
+
+                # Rodapé
+                pdf.ln(10)
+                pdf.set_font("Helvetica", "I", 8)
+                pdf.set_text_color(150, 150, 150)
+                pdf.cell(0, 5, "Gerado por ImobiFlow", new_x="LMARGIN", new_y="NEXT")
+
+                return pdf.output()
+
+            if st.button("📄 Gerar PDF (Pitch + Fotos)", use_container_width=True):
+                with st.spinner("📄 Gerando PDF..."):
+                    _pdf_bytes = gerar_pdf_imovel(_r.to_dict(), _pitch, _fotos_pdf)
+                st.session_state["pdf_bytes"] = _pdf_bytes
+                st.session_state["pdf_nome"] = f"imovel_{_r.get('bairro', 'brasilia').replace(' ', '_')}.pdf"
+
+        if "pdf_bytes" in st.session_state:
+            st.download_button(
+                "⬇️ Baixar PDF",
+                data=st.session_state["pdf_bytes"],
+                file_name=st.session_state["pdf_nome"],
+                mime="application/pdf",
+                use_container_width=True,
+            )
+            st.caption("Envie este PDF como anexo no WhatsApp junto com o pitch.")
 
     st.divider()
 
