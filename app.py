@@ -124,6 +124,14 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
     # Coluna Google Maps (Street View)
     if show_street_view:
         df_g["📍 Street View"] = df_raw.apply(google_sv_link, axis=1)
+        # Coluna link para página de detalhes (fotos + Street View)
+        if "codigo_anuncio" in df_raw.columns:
+            _base = st.secrets.get("APP_URL", "")
+            if not _base:
+                _base = "https://guimotta-app-imobiflow-app-0hbchp.streamlit.app"
+            df_g["📸 Detalhes"] = df_raw["codigo_anuncio"].apply(
+                lambda c: f"{_base}/?imovel={c}" if pd.notna(c) else ""
+            )
 
     # Formatações numéricas
     for c, fn in [("preco", fmt_moeda), ("preco_m2", fmt_moeda),
@@ -155,7 +163,7 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
     prioridade = ([col_extra] if col_extra else []) + [
         "Bairro", "Endereço", "Preço (R$)", "R$/m²", "Média R$/m² Bairro", "vs. Média",
         "Área (m²)", "Quartos", "Banheiros", "Corretor/Imobiliária",
-        "📍 Street View", "🔗 Ver anúncio", "📲 WA"
+        "📸 Detalhes", "📍 Street View", "🔗 Ver anúncio", "📲 WA"
     ]
     df_g = df_g[[c for c in prioridade if c in df_g.columns]]
 
@@ -165,6 +173,8 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
     }
     if "📍 Street View" in df_g.columns:
         _col_config["📍 Street View"] = st.column_config.LinkColumn(display_text="📍 Ver local")
+    if "📸 Detalhes" in df_g.columns:
+        _col_config["📸 Detalhes"] = st.column_config.LinkColumn(display_text="📸 Fotos + Mapa")
 
     st.dataframe(
         df_g,
@@ -203,7 +213,9 @@ def carregar_dados():
             lon,
             data_cadastro,
             dt_inativo,
-            preco_m2
+            preco_m2,
+            fotos_urls,
+            codigo_anuncio
         FROM public.imoveis
         WHERE preco IS NOT NULL
         ORDER BY preco
@@ -247,6 +259,98 @@ def carregar_dados():
 df = carregar_dados()
 if df.empty:
     st.warning("⚠️ Nenhum dado encontrado.")
+    st.stop()
+
+# ── Página de Detalhes do Imóvel (via query param ?imovel=CODIGO) ────────────
+_qp = st.query_params
+if "imovel" in _qp:
+    _cod = _qp["imovel"]
+    _row = df[df["codigo_anuncio"] == _cod]
+    if _row.empty:
+        st.error(f"Imóvel '{_cod}' não encontrado.")
+        st.stop()
+    _r = _row.iloc[0]
+
+    st.title(f"🏠 {_r.get('titulo_vitrine', 'Imóvel')}")
+    st.caption(f"📍 {_r.get('endereco', '')} — {_r.get('bairro', '')}, Brasília - DF")
+
+    # Botão voltar
+    if st.button("⬅️ Voltar ao Dashboard"):
+        st.query_params.clear()
+        st.rerun()
+
+    st.divider()
+
+    # ── Layout: Fotos à esquerda | Street View à direita ──
+    _col_fotos, _col_sv = st.columns(2)
+
+    with _col_fotos:
+        st.subheader("📸 Fotos do Anúncio")
+        _fotos_raw = _r.get("fotos_urls", "")
+        _fotos = [f.strip() for f in str(_fotos_raw).split("|") if f.strip() and f.strip().startswith("http")] if pd.notna(_fotos_raw) else []
+        if _fotos:
+            for foto_url in _fotos[:12]:  # Limitar a 12 fotos
+                st.image(foto_url, use_container_width=True)
+        else:
+            st.info("Sem fotos disponíveis para este imóvel.")
+            # Fallback: botão para abrir anúncio original
+            if pd.notna(_r.get("url")):
+                st.link_button("🔗 Ver fotos no anúncio original", _r["url"])
+
+    with _col_sv:
+        st.subheader("📍 Google Street View")
+        _end = str(_r.get("endereco") or "").strip()
+        _bairro = str(_r.get("bairro") or "").strip()
+        _q_maps = ", ".join(p for p in (_end, _bairro, "Brasília - DF") if p)
+        _maps_embed = f"https://www.google.com/maps/embed/v1/streetview?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&location={_r.get('lat', -15.79)},{_r.get('lon', -47.88)}&heading=90&pitch=0&fov=80"
+        _maps_search = f"https://www.google.com/maps/search/{urllib.parse.quote(_q_maps)}"
+
+        # Tentar embed do Street View se tiver coordenadas
+        if pd.notna(_r.get("lat")) and pd.notna(_r.get("lon")) and _r.get("lat") != 0:
+            st.components.v1.html(
+                f'<iframe width="100%" height="500" style="border:0; border-radius:8px;" '
+                f'src="https://www.google.com/maps?q={_r["lat"]},{_r["lon"]}&layer=c&cbll={_r["lat"]},{_r["lon"]}&cbp=12,90,0,0,0&output=svembed" '
+                f'allowfullscreen></iframe>',
+                height=520,
+            )
+        else:
+            st.info("Sem coordenadas para Street View.")
+
+        st.link_button("🗺️ Abrir no Google Maps", _maps_search)
+
+    st.divider()
+
+    # ── Dados do imóvel ──
+    st.subheader("📋 Dados do Imóvel")
+    _d1, _d2, _d3, _d4 = st.columns(4)
+    _d1.metric("💰 Preço", fmt_moeda(_r.get("preco")))
+    _d2.metric("📐 Área", fmt_area(_r.get("area_util")))
+    _d3.metric("🏷️ R$/m²", fmt_moeda(_r.get("preco_m2")))
+    _d4.metric("🛏️ Quartos", fmt_int(_r.get("quartos")))
+
+    _d5, _d6, _d7, _d8 = st.columns(4)
+    _d5.metric("🚿 Banheiros", fmt_int(_r.get("banheiros")))
+    _d6.metric("🏢 Condomínio", fmt_moeda(_r.get("condominio")))
+    _d7.metric("📄 IPTU", fmt_moeda(_r.get("iptu")))
+    _d8.metric("🚗 Suítes", fmt_int(_r.get("suites")) if pd.notna(_r.get("suites")) else "—")
+
+    st.divider()
+
+    # ── Links ──
+    _lnk1, _lnk2, _lnk3 = st.columns(3)
+    with _lnk1:
+        if pd.notna(_r.get("url")):
+            st.link_button("🏠 Ver anúncio original", _r["url"], use_container_width=True)
+    with _lnk2:
+        st.link_button("📍 Ver no Google Maps", _maps_search, use_container_width=True)
+    with _lnk3:
+        if pd.notna(_r.get("url")):
+            _wa = wa_link(f"Confira este imóvel: {_r['url']}")
+            st.link_button("📲 Compartilhar no WhatsApp", _wa, use_container_width=True)
+
+    st.divider()
+    st.caption(f"👤 Corretor: {_r.get('corretor', '—')} | 📅 Cadastro: {_r.get('data_cadastro', '—')} | ⚙️ Status: {_r.get('status', '—')}")
+    st.caption("🚀 ImobiFlow © 2026")
     st.stop()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
