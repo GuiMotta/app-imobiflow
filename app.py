@@ -79,15 +79,12 @@ def wa_imovel_link(url):
     return ""
 
 def google_sv_link(row):
-    """Gera link do Google Street View usando lat/lon ou endereço."""
-    lat, lon = row.get("lat"), row.get("lon")
-    if pd.notna(lat) and pd.notna(lon) and lat != 0 and lon != 0:
-        return f"https://www.google.com/maps/@{lat},{lon},3a,75y,90t/data=!3m6!1e1!3m4!1s!2e0!7i16384!8i8192"
-    # Fallback: endereço + bairro
-    end = str(row.get("endereco") or "")
-    bairro = str(row.get("bairro") or "")
+    """Gera link do Google Maps usando endereço + bairro + Brasília - DF."""
+    end = str(row.get("endereco") or "").strip()
+    bairro = str(row.get("bairro") or "").strip()
     if end or bairro:
-        q = urllib.parse.quote(f"{end}, {bairro}, Brasília DF")
+        partes = ", ".join(p for p in (end, bairro, "Brasília - DF") if p)
+        q = urllib.parse.quote(partes)
         return f"https://www.google.com/maps/search/{q}"
     return ""
 
@@ -119,23 +116,14 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
                      "quartos", "banheiros", "endereco", "corretor", "url"]
 
     cols = [c for c in cols_base if c in df_raw.columns]
-    # Incluir lat/lon no copy para gerar link Street View
-    _extra_cols = []
-    if show_street_view:
-        for _c in ("lat", "lon"):
-            if _c in df_raw.columns and _c not in cols:
-                _extra_cols.append(_c)
-    df_g = df_raw[cols + _extra_cols + ([col_extra] if col_extra and col_extra in df_raw.columns else [])].copy()
+    df_g = df_raw[cols + ([col_extra] if col_extra and col_extra in df_raw.columns else [])].copy()
 
     # Coluna WhatsApp por imóvel (antes de renomear)
     df_g["📲 WA"] = df_g["url"].apply(wa_imovel_link) if "url" in df_g.columns else ""
 
-    # Coluna Google Street View
+    # Coluna Google Maps (Street View)
     if show_street_view:
         df_g["📍 Street View"] = df_raw.apply(google_sv_link, axis=1)
-        # Remove colunas auxiliares lat/lon do grid
-        for _c in _extra_cols:
-            df_g.drop(columns=[_c], inplace=True, errors="ignore")
 
     # Formatações numéricas
     for c, fn in [("preco", fmt_moeda), ("preco_m2", fmt_moeda),
