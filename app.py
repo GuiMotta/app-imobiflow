@@ -486,28 +486,37 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
 
         # ── Geração do PDF ──
         def gerar_pdf_imovel(dados, pitch_text, fotos_list, rodape_texto):
-            """Gera PDF refinado para cliente de alto padrão."""
+            """Gera PDF refinado para cliente de alto padrão com fonte Montserrat."""
             import tempfile
+            import os
             import requests as req_http
+
+            # Caminho das fontes
+            _fonts_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts")
 
             class PDFComPagina(FPDF):
                 def footer(self):
                     self.set_y(-15)
-                    self.set_font("Helvetica", "I", 8)
+                    self.set_font("Montserrat", "I", 8)
                     self.set_text_color(150, 150, 150)
-                    self.cell(0, 10, f"Pagina {self.page_no()}/{{nb}}", align="C")
+                    self.cell(0, 10, f"Página {self.page_no()}/{self.alias_nb_pages()}", align="C")
 
             pdf = PDFComPagina()
             pdf.alias_nb_pages()
+
+            # Registrar fonte Montserrat (Unicode/TTF)
+            pdf.add_font("Montserrat", "", os.path.join(_fonts_dir, "Montserrat-Regular.ttf"), uni=True)
+            pdf.add_font("Montserrat", "B", os.path.join(_fonts_dir, "Montserrat-Bold.ttf"), uni=True)
+            pdf.add_font("Montserrat", "I", os.path.join(_fonts_dir, "Montserrat-Italic.ttf"), uni=True)
+
             pdf.set_auto_page_break(auto=True, margin=20)
             pdf.add_page()
 
             # ── Cabeçalho elegante ──
-            pdf.set_font("Helvetica", "B", 22)
+            pdf.set_font("Montserrat", "B", 22)
             pdf.set_text_color(30, 30, 30)
-            _titulo = dados.get("titulo_vitrine", "Imovel")
-            _titulo_clean = _titulo.encode("latin-1", errors="replace").decode("latin-1")
-            pdf.cell(0, 14, _titulo_clean, new_x="LMARGIN", new_y="NEXT", align="C")
+            _titulo = dados.get("titulo_vitrine", "Imóvel")
+            pdf.cell(0, 14, _titulo, new_x="LMARGIN", new_y="NEXT", align="C")
             pdf.ln(2)
 
             # Linha decorativa
@@ -517,14 +526,13 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
             pdf.ln(4)
 
             # Endereço
-            pdf.set_font("Helvetica", "", 11)
+            pdf.set_font("Montserrat", "", 11)
             pdf.set_text_color(80, 80, 80)
-            _end = f"{dados.get('endereco', '')} - {dados.get('bairro', '')}, Brasilia - DF"
-            _end_clean = _end.encode("latin-1", errors="replace").decode("latin-1")
-            pdf.cell(0, 7, _end_clean, new_x="LMARGIN", new_y="NEXT", align="C")
+            _end = f"{dados.get('endereco', '')} — {dados.get('bairro', '')}, Brasília - DF"
+            pdf.cell(0, 7, _end, new_x="LMARGIN", new_y="NEXT", align="C")
             pdf.ln(8)
 
-            # ── Dados do imóvel em caixas ──
+            # ── Dados do imóvel ──
             pdf.set_text_color(0, 0, 0)
             _preco = dados.get("preco")
             _area = dados.get("area_util")
@@ -535,19 +543,19 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
             _b = dados.get("banheiros")
 
             # Linha principal de dados
-            pdf.set_font("Helvetica", "B", 11)
+            pdf.set_font("Montserrat", "B", 11)
             _items = []
             if _preco: _items.append(f"R$ {_br(_preco)}")
-            if _area: _items.append(f"{_br(_area)} m2")
-            if _pm2: _items.append(f"R$/m2 {_br(_pm2)}")
+            if _area: _items.append(f"{_br(_area)} m²")
+            if _pm2: _items.append(f"R$/m² {_br(_pm2)}")
             if _items:
                 pdf.cell(0, 8, "   |   ".join(_items), new_x="LMARGIN", new_y="NEXT", align="C")
                 pdf.ln(2)
 
-            pdf.set_font("Helvetica", "", 10)
+            pdf.set_font("Montserrat", "", 10)
             _specs = []
             if _q: _specs.append(f"{int(_q)} quartos")
-            if _s: _specs.append(f"{int(_s)} suites")
+            if _s: _specs.append(f"{int(_s)} suítes")
             if _b: _specs.append(f"{int(_b)} banheiros")
             if _v: _specs.append(f"{int(_v)} vagas")
             if _specs:
@@ -560,17 +568,15 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
             pdf.ln(6)
 
             # ── Pitch / Apresentação ──
-            pdf.set_font("Helvetica", "", 11)
+            pdf.set_font("Montserrat", "", 11)
             pdf.set_text_color(40, 40, 40)
-            _pitch_clean = pitch_text.encode("latin-1", errors="replace").decode("latin-1")
-            pdf.multi_cell(0, 6, _pitch_clean, align="J")
+            pdf.multi_cell(0, 6, pitch_text, align="J")
             pdf.ln(8)
 
-            # ── Rodapé personalizado (assinatura) ──
-            pdf.set_font("Helvetica", "I", 11)
+            # ── Assinatura personalizada ──
+            pdf.set_font("Montserrat", "I", 11)
             pdf.set_text_color(60, 60, 60)
-            _rodape_clean = rodape_texto.encode("latin-1", errors="replace").decode("latin-1")
-            pdf.cell(0, 8, _rodape_clean, new_x="LMARGIN", new_y="NEXT")
+            pdf.cell(0, 8, rodape_texto, new_x="LMARGIN", new_y="NEXT")
             pdf.ln(5)
 
             # ── Fotos centralizadas ──
