@@ -106,11 +106,12 @@ def chart_actions(fig, filename: str, wa_texto: str, wa_label: str = "📲 Compa
         wa_button(wa_texto, wa_label)
 
 def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=480,
-                show_street_view=False):
+                show_street_view=False, show_pitch=False):
     """
-    Monta grid com colunas formatadas + coluna WhatsApp por imóvel.
+    Monta grid com colunas formatadas.
     col_extra: nome de coluna extra (ex: 'Bloco', 'Conjunto') a inserir no início.
-    show_street_view: se True, adiciona coluna com link do Google Street View.
+    show_street_view: se True, adiciona colunas de captação (📸 Detalhes + 📍 Street View).
+    show_pitch: se True, adiciona coluna 🤖 Pitch IA (para apresentar ao cliente).
     """
     if cols_base is None:
         cols_base = ["bairro", "preco", "area_util", "preco_m2",
@@ -119,17 +120,23 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
     cols = [c for c in cols_base if c in df_raw.columns]
     df_g = df_raw[cols + ([col_extra] if col_extra and col_extra in df_raw.columns else [])].copy()
 
-    # Coluna WhatsApp por imóvel (antes de renomear)
-    df_g["📲 WA"] = df_g["url"].apply(wa_imovel_link) if "url" in df_g.columns else ""
+    # Coluna WhatsApp por imóvel (grids sem pitch)
+    if not show_pitch and "url" in df_g.columns:
+        df_g["📲 WA"] = df_g["url"].apply(wa_imovel_link)
 
-    # Coluna Google Maps (Street View)
+    # Coluna 🤖 Pitch IA — abre página de detalhes com gerador de pitch (Mapa + Tabela)
+    if show_pitch and "codigo_anuncio" in df_raw.columns:
+        df_g["🤖 Pitch IA"] = df_raw["codigo_anuncio"].apply(
+            lambda c: f"https://imobiflow.streamlit.app/?imovel={c}" if pd.notna(c) else ""
+        )
+
+    # Coluna 📸 Detalhes + 📍 Street View — para captação (localizar o imóvel)
     if show_street_view:
-        df_g["📍 Street View"] = df_raw.apply(google_sv_link, axis=1)
-        # Coluna link para página de detalhes (fotos + Street View)
         if "codigo_anuncio" in df_raw.columns:
             df_g["📸 Detalhes"] = df_raw["codigo_anuncio"].apply(
                 lambda c: f"https://imobiflow.streamlit.app/?imovel={c}" if pd.notna(c) else ""
             )
+        df_g["📍 Street View"] = df_raw.apply(google_sv_link, axis=1)
 
     # Formatações numéricas
     for c, fn in [("preco", fmt_moeda), ("preco_m2", fmt_moeda),
@@ -161,7 +168,7 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
     prioridade = ([col_extra] if col_extra else []) + [
         "Bairro", "Endereço", "Preço (R$)", "R$/m²", "Média R$/m² Bairro", "vs. Média",
         "Área (m²)", "Quartos", "Banheiros", "Corretor/Imobiliária",
-        "📸 Detalhes", "📍 Street View", "🔗 Ver anúncio", "📲 WA"
+        "🤖 Pitch IA", "📸 Detalhes", "📍 Street View", "🔗 Ver anúncio", "📲 WA"
     ]
     df_g = df_g[[c for c in prioridade if c in df_g.columns]]
 
@@ -169,10 +176,12 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
         "🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir"),
         "📲 WA":          st.column_config.LinkColumn(display_text="📲 WhatsApp"),
     }
-    if "📍 Street View" in df_g.columns:
-        _col_config["📍 Street View"] = st.column_config.LinkColumn(display_text="📍 Ver local")
+    if "🤖 Pitch IA" in df_g.columns:
+        _col_config["🤖 Pitch IA"] = st.column_config.LinkColumn(display_text="🤖 Pitch IA")
     if "📸 Detalhes" in df_g.columns:
         _col_config["📸 Detalhes"] = st.column_config.LinkColumn(display_text="📸 Fotos + Mapa")
+    if "📍 Street View" in df_g.columns:
+        _col_config["📍 Street View"] = st.column_config.LinkColumn(display_text="📍 Ver local")
 
     st.dataframe(
         df_g,
@@ -881,7 +890,7 @@ with tab_mapa:
         montar_grid(df_tabela, key_prefix="mapa_tab",
                     cols_base=["bairro", "preco", "area_util", "preco_m2",
                                "quartos", "banheiros", "endereco", "corretor", "url"],
-                    altura=460)
+                    altura=460, show_pitch=True)
 
         # WhatsApp melhores ofertas da seleção atual
         _melhores = df_tabela.dropna(subset=["preco_m2", "url"]).sort_values("preco_m2").head(5)
