@@ -4,8 +4,7 @@ import re
 import streamlit as st
 import pandas as pd
 import plotly.express as px
-from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.sql import StatementState, Disposition, Format
+import psycopg2
 
 st.set_page_config(
     page_title="ImobiFlow - Dashboard Imóveis DF",
@@ -136,84 +135,55 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
         },
     )
 
-# ── Databricks SDK ────────────────────────────────────────────────────────────
+# ── Supabase PostgreSQL ───────────────────────────────────────────────────────
 @st.cache_resource
-def get_client():
-    return WorkspaceClient()
-
-@st.cache_resource
-def get_warehouse_id():
-    w = get_client()
-    warehouses = list(w.warehouses.list())
-    if not warehouses:
-        return None
-    for wh in warehouses:
-        if wh.state and "RUNNING" in str(wh.state).upper():
-            return wh.id
-    return warehouses[0].id
+def get_connection_string():
+    return st.secrets.get("DATABASE_URL",
+        "postgresql://postgres.lsfgupsxuqnrljegwwsg:ZRiiG1ld8qwb3omq@aws-1-sa-east-1.pooler.supabase.com:6543/postgres"
+    )
 
 # ── Carregamento de dados ─────────────────────────────────────────────────────
 @st.cache_data(ttl=900)
 def carregar_dados():
-    w  = get_client()
-    wh = get_warehouse_id()
-    if not wh:
-        st.error("❌ Nenhum SQL Warehouse disponível.")
-        st.stop()
+    conn_str = get_connection_string()
 
     sql = """
         SELECT
-            bairro_vitrine                                      AS bairro,
-            preco_atual                                         AS preco,
+            bairro,
+            preco,
             area_util,
             quartos,
             banheiros,
             condominio,
             iptu,
             status,
-            corretor_imobiliaria                                AS corretor,
-            endereco_site                                       AS endereco,
+            corretor,
+            endereco,
             titulo_vitrine,
             LEFT(descricao, 300) AS descricao,
             url,
-            CAST(coordenadas_oficiais.lat AS DOUBLE)            AS lat,
-            CAST(coordenadas_oficiais.lon AS DOUBLE)            AS lon,
-            data_cadastro_site                                  AS data_cadastro,
+            lat,
+            lon,
+            data_cadastro,
             dt_inativo,
-            CASE
-                WHEN area_util >= 15
-                THEN ROUND(preco_atual / area_util, 0)
-                ELSE NULL
-            END                                                 AS preco_m2
-        FROM gold.dfimoveis.`05_aln_imoveis_gold`
-        WHERE preco_atual IS NOT NULL
-        ORDER BY preco_atual
+            preco_m2
+        FROM public.imoveis
+        WHERE preco IS NOT NULL
+        ORDER BY preco
     """
 
-    resp = w.statement_execution.execute_statement(
-        warehouse_id=wh, statement=sql, wait_timeout="50s",
-        disposition=Disposition.INLINE, format=Format.JSON_ARRAY,
-    )
-    if resp.status.state != StatementState.SUCCEEDED:
-        st.error(f"❌ Query falhou: {resp.status}")
+    try:
+        conn = psycopg2.connect(conn_str, sslmode="require")
+        df = pd.read_sql(sql, conn)
+        conn.close()
+    except Exception as e:
+        st.error(f"❌ Erro ao conectar ao banco: {e}")
         st.stop()
 
-    cols = [c.name for c in resp.manifest.schema.columns]
-    # Coleta TODOS os chunks (primeiro vem no resp.result)
-    rows = list(resp.result.data_array or [])
-    total_chunks = resp.manifest.total_chunk_count or 1
-    if total_chunks > 1:
-        for idx in range(1, total_chunks):
-            chunk = w.statement_execution.get_statement_result_chunk_n(
-                resp.statement_id, idx
-            )
-            rows.extend(chunk.data_array or [])
-    df = pd.DataFrame(rows, columns=cols)
-
-    for col in ["preco", "area_util", "quartos", "banheiros",
-                "condominio", "iptu", "lat", "lon", "preco_m2"]:
-        if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+    for c in ["preco", "area_util", "quartos", "banheiros",
+              "condominio", "iptu", "lat", "lon", "preco_m2"]:
+        if c in df.columns:
+            df[c] = pd.to_numeric(df[c], errors="coerce")
 
     def detectar_tipo(url):
         u = str(url).lower()
@@ -301,7 +271,7 @@ filtro_label = ", ".join(bairros_sel) if bairros_sel else "Todos os bairros"
 
 # ── Header ────────────────────────────────────────────────────────────────────
 st.title("🏠 ImobiFlow — Dashboard Imóveis DF")
-st.caption("📦 Fonte: `gold.dfimoveis.05_aln_imoveis_gold`")
+st.caption("📦 Fonte: Supabase PostgreSQL — `public.imoveis`")
 
 # ── Abas principais ───────────────────────────────────────────────────────────
 tab_mercado, tab_mapa, tab_opor = st.tabs([
@@ -812,4 +782,4 @@ with tab_opor:
             )
 
 st.divider()
-st.caption("🚀 ImobiFlow © 2026 | Delta Lake | `gold.dfimoveis.05_aln_imoveis_gold`")
+st.caption("🚀 ImobiFlow © 2026 | Supabase PostgreSQL")
