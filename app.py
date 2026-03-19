@@ -369,8 +369,6 @@ if "imovel" in _qp:
         vagas = dados_imovel.get("vagas")
         url_anuncio = str(dados_imovel.get("url") or "")
 
-        condominio = dados_imovel.get("condominio")
-        iptu = dados_imovel.get("iptu")
         preco_m2 = dados_imovel.get("preco_m2")
         amenidades = str(dados_imovel.get("amenidades") or "")
 
@@ -383,41 +381,38 @@ Preço: R$ {_br(preco) if preco else 'Não informado'}
 Área útil: {_br(area) if area else 'Não informada'} m²
 Preço/m²: R$ {_br(preco_m2) if preco_m2 else 'N/I'}
 Quartos: {quartos or 'N/I'} | Suítes: {suites or 'N/I'} | Vagas: {vagas or 'N/I'}
-Condomínio: R$ {_br(condominio) if condominio else 'N/I'} | IPTU: R$ {_br(iptu) if iptu else 'N/I'}
 Diferenciais/Amenidades: {amenidades or 'N/I'}
-Link do anúncio: {url_anuncio}
 
 === DESCRIÇÃO ORIGINAL DO ANÚNCIO ===
 {descricao[:2000]}
 """.strip()
 
         system_prompt = (
-            "Você é um copywriter especialista em mercado imobiliário de Brasília-DF. "
-            "Crie uma mensagem de WhatsApp PRONTA PARA COPIAR E COLAR com as seguintes características:\n\n"
+            "Você é um consultor imobiliário sênior em Brasília-DF. "
+            "Crie uma mensagem de WhatsApp PRONTA PARA COPIAR E COLAR.\n\n"
 
-            "ESTRUTURA DA MENSAGEM (8 a 10 linhas):\n"
-            "1. ABERTURA com gancho emocional ou de oportunidade (1 linha)\n"
-            "2. LOCALIZAÇÃO — cite o bairro/setor exato de Brasília (SQS, SQSW, SHIN, etc.) se disponível (1 linha)\n"
+            "ESTRUTURA (7 a 9 linhas, texto limpo e direto):\n"
+            "1. ABERTURA — uma frase de impacto sobre a oportunidade (1 linha)\n"
+            "2. LOCALIZAÇÃO — bairro/setor exato de Brasília (SQS, SQSW, SHIN, etc.) se disponível (1 linha)\n"
             "3. FICHA RESUMIDA — quartos, suítes, área, vagas em formato compacto (1-2 linhas)\n"
-            "4. DIFERENCIAIS REAIS — até 3 destaques extraídos da descrição que agregam valor real (1-2 linhas)\n"
-            "5. PREÇO com destaque — sempre no formato brasileiro R$ X.XXX.XXX (1 linha)\n"
-            "6. Se disponível, inclua o preço/m² como referência de mercado (1 linha)\n"
-            "7. CALL-TO-ACTION — convite para visita ou mais informações (1 linha)\n"
-            "8. LINK do anúncio na última linha\n\n"
+            "4. DIFERENCIAIS REAIS — até 3 destaques extraídos da descrição que agregam valor (1-2 linhas)\n"
+            "5. PREÇO — sempre no formato brasileiro R$ X.XXX.XXX. Se disponível, inclua o preço/m² (1 linha)\n"
+            "6. FECHAMENTO — convite objetivo para agendar visita ou solicitar mais informações (1 linha)\n\n"
 
-            "REGRAS OBRIGATÓRIAS:\n"
-            "• AUDITORIA LÓGICA: Se houver contradições entre título e descrição "
-            "(ex: 'casa térrea' + 'pavimento superior'), PRIORIZE a descrição detalhada. "
-            "NUNCA invente informações que não estão nos dados.\n"
-            "• EXCLUSÃO: Ignore completamente lixo de site (Ligue Agora, Simule Financiamento, "
-            "cookies, termos de uso), telefones, CRECI e nomes de corretores.\n"
-            "• CONTEXTO BRASÍLIA: Use referências que façam sentido no DF — "
-            "proximidade ao Plano Piloto, setores comerciais, Lago Paranoá, Parque da Cidade, etc. "
-            "Somente se for dedutível dos dados. NÃO invente proximidades.\n"
-            "• TOM: Profissional mas acessível, como um corretor premium conversando com cliente no WhatsApp.\n"
-            "• EMOJIS: Use no máximo 4 emojis estratégicos (🏠 📍 💰 ✅ são boas opções).\n"
-            "• NÃO use formatação markdown (sem **, ##, etc). Texto puro para WhatsApp.\n"
-            "• NÃO comece com 'Olá' ou saudações genéricas. Vá direto ao ponto."
+            "REGRAS INVIOLÁVEIS:\n"
+            "- NUNCA inclua links, URLs ou endereços web de qualquer tipo.\n"
+            "- NUNCA mencione condomínio (taxa) nem IPTU.\n"
+            "- NUNCA inclua nomes de corretores, imobiliárias, telefones ou CRECI.\n"
+            "- NUNCA invente dados. Se a informação não está nos dados fornecidos, não mencione.\n"
+            "- Se houver contradições entre título e descrição, priorize a descrição detalhada.\n"
+            "- Ignore lixo de site (Ligue Agora, Simule Financiamento, cookies, termos de uso).\n\n"
+
+            "TOM E FORMATO:\n"
+            "- Tom profissional e sóbrio, como um consultor de alto padrão.\n"
+            "- Use no MÁXIMO 2 emojis em toda a mensagem. Menos é mais.\n"
+            "- NÃO use formatação markdown (sem **, ##, etc). Texto puro para WhatsApp.\n"
+            "- NÃO comece com saudações genéricas (Olá, Boa tarde, etc). Vá direto ao ponto.\n"
+            "- Contexto Brasília: referencie setores e regiões do DF somente se dedutível dos dados."
         )
 
         payload = {
@@ -458,25 +453,9 @@ Link do anúncio: {url_anuncio}
         _pitch = st.session_state["pitch_gerado"]
         st.text_area("📝 Pitch gerado:", _pitch, height=200)
 
-        # Montar mensagem WhatsApp com fotos
-        _fotos_raw = _r.get("fotos_urls", "")
-        _fotos_wa = [f.strip() for f in str(_fotos_raw).split("|") if f.strip().startswith("http")] if pd.notna(_fotos_raw) else []
-        _msg_wa = _pitch
-        if _fotos_wa:
-            _msg_wa += "\n\n📸 Fotos:\n" + "\n".join(_fotos_wa[:5])
-
-        _wa_pitch = wa_link(_msg_wa)
-
-        _c1, _c2 = st.columns(2)
-        with _c1:
-            st.link_button("📲 Enviar Pitch via WhatsApp", _wa_pitch, use_container_width=True, type="primary")
-        with _c2:
-            st.link_button(
-                "📲 WhatsApp sem fotos",
-                wa_link(_pitch),
-                use_container_width=True,
-            )
-        st.caption("💡 Dica: O link com fotos pode ficar longo. Se preferir, envie sem fotos e anexe as imagens manualmente.")
+        _wa_pitch = wa_link(_pitch)
+        st.link_button("📲 Enviar Pitch via WhatsApp", _wa_pitch, use_container_width=True, type="primary")
+        st.caption("Dica: envie as fotos do imóvel como anexo separado no WhatsApp para maior impacto.")
 
     st.divider()
     st.caption(f"👤 Corretor: {_r.get('corretor', '—')} | 📅 Cadastro: {_r.get('data_cadastro', '—')} | ⚙️ Status: {_r.get('status', '—')}")
