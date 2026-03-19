@@ -369,29 +369,55 @@ if "imovel" in _qp:
         vagas = dados_imovel.get("vagas")
         url_anuncio = str(dados_imovel.get("url") or "")
 
+        condominio = dados_imovel.get("condominio")
+        iptu = dados_imovel.get("iptu")
+        preco_m2 = dados_imovel.get("preco_m2")
+        amenidades = str(dados_imovel.get("amenidades") or "")
+
         ficha_tecnica = f"""
+=== DADOS DO IMÓVEL ===
 Título: {titulo}
 Bairro: {bairro}
 Endereço: {endereco}
 Preço: R$ {_br(preco) if preco else 'Não informado'}
-Área: {_br(area) if area else 'Não informada'} m²
+Área útil: {_br(area) if area else 'Não informada'} m²
+Preço/m²: R$ {_br(preco_m2) if preco_m2 else 'N/I'}
 Quartos: {quartos or 'N/I'} | Suítes: {suites or 'N/I'} | Vagas: {vagas or 'N/I'}
-Link: {url_anuncio}
-Descrição do anúncio: {descricao[:1500]}
+Condomínio: R$ {_br(condominio) if condominio else 'N/I'} | IPTU: R$ {_br(iptu) if iptu else 'N/I'}
+Diferenciais/Amenidades: {amenidades or 'N/I'}
+Link do anúncio: {url_anuncio}
+
+=== DESCRIÇÃO ORIGINAL DO ANÚNCIO ===
+{descricao[:2000]}
 """.strip()
 
         system_prompt = (
-            "Atue como um redator publicitário de alto nível no mercado imobiliário de Brasília-DF. "
-            "Sua tarefa é criar uma mensagem de WhatsApp persuasiva de 6 a 8 linhas oferecendo este imóvel. "
-            "REGRA DE AUDITORIA LÓGICA (CRÍTICO): Leia o texto com extrema atenção. "
-            "Se houver contradições (ex: cabeçalho diz 'casa térrea' mas texto menciona 'pavimento superior'), "
-            "PRIORIZE a realidade da descrição detalhada. Nunca propague informações falsas. "
-            "REGRAS DE EXCLUSÃO: Ignore lixo de site ('Ligue Agora', 'Simule Financiamento'), "
-            "avisos jurídicos, telefones e nomes de corretores/CRECI. "
-            "REGRAS DE INCLUSÃO: Destaque o Tipo real do imóvel, Condomínio/Bairro EXATO se mencionado, "
-            "e os diferenciais reais de maior valor (ex: energia fotovoltaica, reformado, vista privilegiada). "
-            "INCLUA o preço formatado e o link do anúncio no final. "
-            "Use no máximo 3 emojis. Vá direto ao ponto. Formato: texto pronto para copiar e colar no WhatsApp."
+            "Você é um copywriter especialista em mercado imobiliário de Brasília-DF. "
+            "Crie uma mensagem de WhatsApp PRONTA PARA COPIAR E COLAR com as seguintes características:\n\n"
+
+            "ESTRUTURA DA MENSAGEM (8 a 10 linhas):\n"
+            "1. ABERTURA com gancho emocional ou de oportunidade (1 linha)\n"
+            "2. LOCALIZAÇÃO — cite o bairro/setor exato de Brasília (SQS, SQSW, SHIN, etc.) se disponível (1 linha)\n"
+            "3. FICHA RESUMIDA — quartos, suítes, área, vagas em formato compacto (1-2 linhas)\n"
+            "4. DIFERENCIAIS REAIS — até 3 destaques extraídos da descrição que agregam valor real (1-2 linhas)\n"
+            "5. PREÇO com destaque — sempre no formato brasileiro R$ X.XXX.XXX (1 linha)\n"
+            "6. Se disponível, inclua o preço/m² como referência de mercado (1 linha)\n"
+            "7. CALL-TO-ACTION — convite para visita ou mais informações (1 linha)\n"
+            "8. LINK do anúncio na última linha\n\n"
+
+            "REGRAS OBRIGATÓRIAS:\n"
+            "• AUDITORIA LÓGICA: Se houver contradições entre título e descrição "
+            "(ex: 'casa térrea' + 'pavimento superior'), PRIORIZE a descrição detalhada. "
+            "NUNCA invente informações que não estão nos dados.\n"
+            "• EXCLUSÃO: Ignore completamente lixo de site (Ligue Agora, Simule Financiamento, "
+            "cookies, termos de uso), telefones, CRECI e nomes de corretores.\n"
+            "• CONTEXTO BRASÍLIA: Use referências que façam sentido no DF — "
+            "proximidade ao Plano Piloto, setores comerciais, Lago Paranoá, Parque da Cidade, etc. "
+            "Somente se for dedutível dos dados. NÃO invente proximidades.\n"
+            "• TOM: Profissional mas acessível, como um corretor premium conversando com cliente no WhatsApp.\n"
+            "• EMOJIS: Use no máximo 4 emojis estratégicos (🏠 📍 💰 ✅ são boas opções).\n"
+            "• NÃO use formatação markdown (sem **, ##, etc). Texto puro para WhatsApp.\n"
+            "• NÃO comece com 'Olá' ou saudações genéricas. Vá direto ao ponto."
         )
 
         payload = {
