@@ -134,7 +134,7 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
     if show_street_view:
         if "codigo_anuncio" in df_raw.columns:
             df_g["📸 Detalhes"] = df_raw["codigo_anuncio"].apply(
-                lambda c: f"https://imobiflow.streamlit.app/?imovel={c}" if pd.notna(c) else ""
+                lambda c: f"https://imobiflow.streamlit.app/?captar={c}" if pd.notna(c) else ""
             )
         df_g["📍 Street View"] = df_raw.apply(google_sv_link, axis=1)
 
@@ -268,98 +268,57 @@ if df.empty:
     st.warning("⚠️ Nenhum dado encontrado.")
     st.stop()
 
-# ── Página de Detalhes do Imóvel (via query param ?imovel=CODIGO) ────────────
+# ── Helpers comuns para páginas de detalhe ────────────────────────────────────
+def _carregar_imovel(codigo):
+    """Retorna série do imóvel ou None."""
+    _row = df[df["codigo_anuncio"] == codigo]
+    if _row.empty:
+        st.error(f"Imóvel '{codigo}' não encontrado.")
+        st.stop()
+    return _row.iloc[0]
+
+def _dados_imovel_card(r):
+    """Exibe cards com dados do imóvel."""
+    st.subheader("📋 Dados do Imóvel")
+    _d1, _d2, _d3, _d4 = st.columns(4)
+    _d1.metric("💰 Preço", fmt_moeda(r.get("preco")))
+    _d2.metric("📐 Área", fmt_area(r.get("area_util")))
+    _d3.metric("🏷️ R$/m²", fmt_moeda(r.get("preco_m2")))
+    _d4.metric("🛏️ Quartos", fmt_int(r.get("quartos")))
+    _d5, _d6, _d7, _d8 = st.columns(4)
+    _d5.metric("🚿 Banheiros", fmt_int(r.get("banheiros")))
+    _d6.metric("🏢 Condomínio", fmt_moeda(r.get("condominio")))
+    _d7.metric("📄 IPTU", fmt_moeda(r.get("iptu")))
+    _d8.metric("🛋️ Suítes", fmt_int(r.get("suites")) if pd.notna(r.get("suites")) else "—")
+
+def _maps_url(r):
+    _end = str(r.get("endereco") or "").strip()
+    _bairro = str(r.get("bairro") or "").strip()
+    _q = ", ".join(p for p in (_end, _bairro, "Brasília - DF") if p)
+    return f"https://www.google.com/maps/search/{urllib.parse.quote(_q)}"
+
+# ── PÁGINA 1: Pitch IA / Venda (?imovel=CODIGO) ─────────────────────────────
 _qp = st.query_params
 if "imovel" in _qp:
-    _cod = _qp["imovel"]
-    _row = df[df["codigo_anuncio"] == _cod]
-    if _row.empty:
-        st.error(f"Imóvel '{_cod}' não encontrado.")
-        st.stop()
-    _r = _row.iloc[0]
+    _r = _carregar_imovel(_qp["imovel"])
 
     st.title(f"🏠 {_r.get('titulo_vitrine', 'Imóvel')}")
     st.caption(f"📍 {_r.get('endereco', '')} — {_r.get('bairro', '')}, Brasília - DF")
 
-    # Botão voltar
     if st.button("⬅️ Voltar ao Dashboard"):
         st.query_params.clear()
         st.rerun()
 
     st.divider()
 
-    # ── Layout: Fotos à esquerda | Street View à direita ──
-    _col_fotos, _col_sv = st.columns(2)
-
-    with _col_fotos:
-        st.subheader("📸 Fotos do Anúncio")
-        _fotos_raw = _r.get("fotos_urls", "")
-        _fotos = [f.strip() for f in str(_fotos_raw).split("|") if f.strip() and f.strip().startswith("http")] if pd.notna(_fotos_raw) else []
-        if _fotos:
-            for foto_url in _fotos[:12]:  # Limitar a 12 fotos
-                st.image(foto_url, use_container_width=True)
-        else:
-            st.info("Sem fotos disponíveis para este imóvel.")
-            # Fallback: botão para abrir anúncio original
-            if pd.notna(_r.get("url")):
-                st.link_button("🔗 Ver fotos no anúncio original", _r["url"])
-
-    with _col_sv:
-        st.subheader("📍 Google Street View")
-        _end = str(_r.get("endereco") or "").strip()
-        _bairro = str(_r.get("bairro") or "").strip()
-        _q_maps = ", ".join(p for p in (_end, _bairro, "Brasília - DF") if p)
-        _maps_embed = f"https://www.google.com/maps/embed/v1/streetview?key=AIzaSyBFw0Qbyq9zTFTd-tUY6dZWTgaQzuU17R8&location={_r.get('lat', -15.79)},{_r.get('lon', -47.88)}&heading=90&pitch=0&fov=80"
-        _maps_search = f"https://www.google.com/maps/search/{urllib.parse.quote(_q_maps)}"
-
-        # Tentar embed do Street View se tiver coordenadas
-        if pd.notna(_r.get("lat")) and pd.notna(_r.get("lon")) and _r.get("lat") != 0:
-            st.components.v1.html(
-                f'<iframe width="100%" height="500" style="border:0; border-radius:8px;" '
-                f'src="https://www.google.com/maps?q={_r["lat"]},{_r["lon"]}&layer=c&cbll={_r["lat"]},{_r["lon"]}&cbp=12,90,0,0,0&output=svembed" '
-                f'allowfullscreen></iframe>',
-                height=520,
-            )
-        else:
-            st.info("Sem coordenadas para Street View.")
-
-        st.link_button("🗺️ Abrir no Google Maps", _maps_search)
-
-    st.divider()
-
     # ── Dados do imóvel ──
-    st.subheader("📋 Dados do Imóvel")
-    _d1, _d2, _d3, _d4 = st.columns(4)
-    _d1.metric("💰 Preço", fmt_moeda(_r.get("preco")))
-    _d2.metric("📐 Área", fmt_area(_r.get("area_util")))
-    _d3.metric("🏷️ R$/m²", fmt_moeda(_r.get("preco_m2")))
-    _d4.metric("🛏️ Quartos", fmt_int(_r.get("quartos")))
-
-    _d5, _d6, _d7, _d8 = st.columns(4)
-    _d5.metric("🚿 Banheiros", fmt_int(_r.get("banheiros")))
-    _d6.metric("🏢 Condomínio", fmt_moeda(_r.get("condominio")))
-    _d7.metric("📄 IPTU", fmt_moeda(_r.get("iptu")))
-    _d8.metric("🚗 Suítes", fmt_int(_r.get("suites")) if pd.notna(_r.get("suites")) else "—")
-
-    st.divider()
-
-    # ── Links ──
-    _lnk1, _lnk2, _lnk3 = st.columns(3)
-    with _lnk1:
-        if pd.notna(_r.get("url")):
-            st.link_button("🏠 Ver anúncio original", _r["url"], use_container_width=True)
-    with _lnk2:
-        st.link_button("📍 Ver no Google Maps", _maps_search, use_container_width=True)
-    with _lnk3:
-        if pd.notna(_r.get("url")):
-            _wa = wa_link(f"Confira este imóvel: {_r['url']}")
-            st.link_button("📲 Compartilhar no WhatsApp", _wa, use_container_width=True)
+    _dados_imovel_card(_r)
 
     st.divider()
 
     # ── 🤖 Pitch com IA (Groq) — sob demanda ──
     st.subheader("🤖 Pitch Inteligente para WhatsApp")
-    st.caption("Gere um texto persuasivo para compartilhar este imóvel via WhatsApp usando IA.")
+    st.caption("Gere um texto persuasivo para apresentar este imóvel ao seu cliente.")
 
     def gerar_pitch_ia(dados_imovel):
         """Chama a API Groq para gerar pitch de WhatsApp."""
@@ -467,8 +426,104 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
         st.caption("Dica: envie as fotos do imóvel como anexo separado no WhatsApp para maior impacto.")
 
     st.divider()
+
+    # ── Fotos do imóvel (para o corretor baixar e enviar) ──
+    _fotos_raw = _r.get("fotos_urls", "")
+    _fotos = [f.strip() for f in str(_fotos_raw).split("|") if f.strip() and f.strip().startswith("http")] if pd.notna(_fotos_raw) else []
+    if _fotos:
+        with st.expander(f"📸 Fotos do Anúncio ({len(_fotos)} fotos) — clique para expandir"):
+            _cols_foto = st.columns(3)
+            for i, foto_url in enumerate(_fotos[:12]):
+                with _cols_foto[i % 3]:
+                    st.image(foto_url, use_container_width=True)
+
+    # ── Links ──
+    _maps_search = _maps_url(_r)
+    _lnk1, _lnk2 = st.columns(2)
+    with _lnk1:
+        if pd.notna(_r.get("url")):
+            st.link_button("🏠 Ver anúncio original", _r["url"], use_container_width=True)
+    with _lnk2:
+        st.link_button("📍 Ver no Google Maps", _maps_search, use_container_width=True)
+
+    st.divider()
     st.caption(f"👤 Corretor: {_r.get('corretor', '—')} | 📅 Cadastro: {_r.get('data_cadastro', '—')} | ⚙️ Status: {_r.get('status', '—')}")
-    st.caption("🚀 ImobiFlow © 2026")
+    st.stop()
+
+# ── PÁGINA 2: Captação / Localização (?captar=CODIGO) ────────────────────────
+if "captar" in _qp:
+    _r = _carregar_imovel(_qp["captar"])
+
+    st.title(f"🔍 Captação — {_r.get('titulo_vitrine', 'Imóvel')}")
+    st.caption(f"📍 {_r.get('endereco', '')} — {_r.get('bairro', '')}, Brasília - DF")
+
+    if st.button("⬅️ Voltar ao Dashboard"):
+        st.query_params.clear()
+        st.rerun()
+
+    st.divider()
+
+    # ── Layout: Fotos à esquerda | Street View à direita ──
+    _col_fotos, _col_sv = st.columns(2)
+
+    with _col_fotos:
+        st.subheader("📸 Fotos do Anúncio")
+        _fotos_raw = _r.get("fotos_urls", "")
+        _fotos = [f.strip() for f in str(_fotos_raw).split("|") if f.strip() and f.strip().startswith("http")] if pd.notna(_fotos_raw) else []
+        if _fotos:
+            for foto_url in _fotos[:12]:
+                st.image(foto_url, use_container_width=True)
+        else:
+            st.info("Sem fotos disponíveis para este imóvel.")
+            if pd.notna(_r.get("url")):
+                st.link_button("🔗 Ver fotos no anúncio original", _r["url"])
+
+    with _col_sv:
+        st.subheader("📍 Google Street View")
+        _maps_search = _maps_url(_r)
+
+        if pd.notna(_r.get("lat")) and pd.notna(_r.get("lon")) and _r.get("lat") != 0:
+            st.components.v1.html(
+                f'<iframe width="100%" height="500" style="border:0; border-radius:8px;" '
+                f'src="https://www.google.com/maps?q={_r["lat"]},{_r["lon"]}&layer=c&cbll={_r["lat"]},{_r["lon"]}&cbp=12,90,0,0,0&output=svembed" '
+                f'allowfullscreen></iframe>',
+                height=520,
+            )
+        else:
+            st.info("Sem coordenadas para Street View.")
+
+        st.link_button("🗺️ Abrir no Google Maps", _maps_search)
+
+    st.divider()
+
+    # ── Dados do imóvel ──
+    _dados_imovel_card(_r)
+
+    st.divider()
+
+    # ── Dados do anunciante (quem captar) ──
+    st.subheader("👤 Dados do Anunciante")
+    _a1, _a2, _a3 = st.columns(3)
+    _a1.metric("🏢 Corretor/Imobiliária", _r.get("corretor", "—"))
+    _a2.metric("📅 Cadastro no site", _r.get("data_cadastro", "—"))
+    _a3.metric("⚙️ Status", _r.get("status", "—"))
+
+    st.divider()
+
+    # ── Links ──
+    _lnk1, _lnk2, _lnk3 = st.columns(3)
+    with _lnk1:
+        if pd.notna(_r.get("url")):
+            st.link_button("🏠 Ver anúncio original", _r["url"], use_container_width=True)
+    with _lnk2:
+        st.link_button("📍 Ver no Google Maps", _maps_search, use_container_width=True)
+    with _lnk3:
+        if pd.notna(_r.get("url")):
+            _wa = wa_link(f"Vi seu imóvel no DF Imóveis e tenho interesse em conversar sobre captação exclusiva. Segue o link: {_r['url']}")
+            st.link_button("📲 Contatar Anunciante (WA)", _wa, use_container_width=True)
+
+    st.divider()
+    st.caption("🔍 Página de captação — use as fotos e o Street View para localizar o imóvel antes da visita.")
     st.stop()
 
 # ── Sidebar ───────────────────────────────────────────────────────────────────
