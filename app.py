@@ -126,11 +126,8 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
         df_g["📍 Street View"] = df_raw.apply(google_sv_link, axis=1)
         # Coluna link para página de detalhes (fotos + Street View)
         if "codigo_anuncio" in df_raw.columns:
-            _base = st.secrets.get("APP_URL", "")
-            if not _base:
-                _base = "https://guimotta-app-imobiflow-app-0hbchp.streamlit.app"
             df_g["📸 Detalhes"] = df_raw["codigo_anuncio"].apply(
-                lambda c: f"{_base}/?imovel={c}" if pd.notna(c) else ""
+                lambda c: f"https://imobiflow.streamlit.app/?imovel={c}" if pd.notna(c) else ""
             )
 
     # Formatações numéricas
