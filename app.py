@@ -512,7 +512,7 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
                         except Exception:
                             pass
 
-                return pdf.output()
+                return bytes(pdf.output())
 
             if st.button("📄 Gerar PDF (Pitch + Fotos)", use_container_width=True):
                 with st.spinner("📄 Gerando PDF..."):
