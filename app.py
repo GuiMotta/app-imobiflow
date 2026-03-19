@@ -425,100 +425,185 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
         st.text_area("📝 Pitch gerado:", _pitch, height=200)
 
         _wa_pitch = wa_link(_pitch)
+        st.link_button("📲 Enviar Pitch via WhatsApp", _wa_pitch, use_container_width=True, type="primary")
 
-        _btn1, _btn2 = st.columns(2)
-        with _btn1:
-            st.link_button("📲 Enviar Pitch via WhatsApp", _wa_pitch, use_container_width=True, type="primary")
-        with _btn2:
-            # Gerar PDF com pitch + fotos
-            _fotos_raw_pdf = _r.get("fotos_urls", "")
-            _fotos_pdf = [f.strip() for f in str(_fotos_raw_pdf).split("|") if f.strip() and f.strip().startswith("http")] if pd.notna(_fotos_raw_pdf) else []
+        st.divider()
 
-            def gerar_pdf_imovel(dados, pitch_text, fotos_list):
-                """Gera PDF com pitch + dados + fotos do imóvel."""
-                pdf = FPDF()
-                pdf.set_auto_page_break(auto=True, margin=15)
+        # ── Seleção de fotos para o PDF ──
+        _fotos_raw_pdf = _r.get("fotos_urls", "")
+        _fotos_todas = [f.strip() for f in str(_fotos_raw_pdf).split("|") if f.strip() and f.strip().startswith("http")] if pd.notna(_fotos_raw_pdf) else []
+
+        if _fotos_todas:
+            st.subheader("📸 Selecione as fotos para o PDF")
+            st.caption("Marque as fotos que deseja incluir no material de apresentação.")
+
+            # Inicializar seleção no session_state
+            if "fotos_selecionadas" not in st.session_state:
+                st.session_state["fotos_selecionadas"] = list(range(min(6, len(_fotos_todas))))
+
+            _sel_col1, _sel_col2 = st.columns(2)
+            with _sel_col1:
+                if st.button("✅ Selecionar todas", use_container_width=True):
+                    st.session_state["fotos_selecionadas"] = list(range(len(_fotos_todas)))
+                    st.rerun()
+            with _sel_col2:
+                if st.button("❌ Desmarcar todas", use_container_width=True):
+                    st.session_state["fotos_selecionadas"] = []
+                    st.rerun()
+
+            _cols_foto = st.columns(3)
+            for i, foto_url in enumerate(_fotos_todas[:15]):
+                with _cols_foto[i % 3]:
+                    _checked = st.checkbox(
+                        f"Foto {i+1}",
+                        value=i in st.session_state.get("fotos_selecionadas", []),
+                        key=f"foto_sel_{i}",
+                    )
+                    st.image(foto_url, use_container_width=True)
+                    # Atualizar seleção
+                    _sel = st.session_state.get("fotos_selecionadas", [])
+                    if _checked and i not in _sel:
+                        _sel.append(i)
+                        st.session_state["fotos_selecionadas"] = _sel
+                    elif not _checked and i in _sel:
+                        _sel.remove(i)
+                        st.session_state["fotos_selecionadas"] = _sel
+
+            _fotos_pdf = [_fotos_todas[i] for i in sorted(st.session_state.get("fotos_selecionadas", [])) if i < len(_fotos_todas)]
+            st.caption(f"{len(_fotos_pdf)} foto(s) selecionada(s)")
+        else:
+            _fotos_pdf = []
+
+        st.divider()
+
+        # ── Rodapé customizável ──
+        st.subheader("✍️ Assinatura do PDF")
+        _rodape_padrao = "Abraco, Viviane!"
+        _rodape = st.text_input("Rodapé personalizado:", value=_rodape_padrao, placeholder="Ex: Abraco, Viviane!")
+
+        # ── Geração do PDF ──
+        def gerar_pdf_imovel(dados, pitch_text, fotos_list, rodape_texto):
+            """Gera PDF refinado para cliente de alto padrão."""
+            import tempfile
+            import requests as req_http
+
+            class PDFComPagina(FPDF):
+                def footer(self):
+                    self.set_y(-15)
+                    self.set_font("Helvetica", "I", 8)
+                    self.set_text_color(150, 150, 150)
+                    self.cell(0, 10, f"Pagina {self.page_no()}/{{nb}}", align="C")
+
+            pdf = PDFComPagina()
+            pdf.alias_nb_pages()
+            pdf.set_auto_page_break(auto=True, margin=20)
+            pdf.add_page()
+
+            # ── Cabeçalho elegante ──
+            pdf.set_font("Helvetica", "B", 22)
+            pdf.set_text_color(30, 30, 30)
+            _titulo = dados.get("titulo_vitrine", "Imovel")
+            _titulo_clean = _titulo.encode("latin-1", errors="replace").decode("latin-1")
+            pdf.cell(0, 14, _titulo_clean, new_x="LMARGIN", new_y="NEXT", align="C")
+            pdf.ln(2)
+
+            # Linha decorativa
+            pdf.set_draw_color(200, 170, 100)
+            pdf.set_line_width(0.8)
+            pdf.line(30, pdf.get_y(), 180, pdf.get_y())
+            pdf.ln(4)
+
+            # Endereço
+            pdf.set_font("Helvetica", "", 11)
+            pdf.set_text_color(80, 80, 80)
+            _end = f"{dados.get('endereco', '')} - {dados.get('bairro', '')}, Brasilia - DF"
+            _end_clean = _end.encode("latin-1", errors="replace").decode("latin-1")
+            pdf.cell(0, 7, _end_clean, new_x="LMARGIN", new_y="NEXT", align="C")
+            pdf.ln(8)
+
+            # ── Dados do imóvel em caixas ──
+            pdf.set_text_color(0, 0, 0)
+            _preco = dados.get("preco")
+            _area = dados.get("area_util")
+            _pm2 = dados.get("preco_m2")
+            _q = dados.get("quartos")
+            _s = dados.get("suites")
+            _v = dados.get("vagas")
+            _b = dados.get("banheiros")
+
+            # Linha principal de dados
+            pdf.set_font("Helvetica", "B", 11)
+            _items = []
+            if _preco: _items.append(f"R$ {_br(_preco)}")
+            if _area: _items.append(f"{_br(_area)} m2")
+            if _pm2: _items.append(f"R$/m2 {_br(_pm2)}")
+            if _items:
+                pdf.cell(0, 8, "   |   ".join(_items), new_x="LMARGIN", new_y="NEXT", align="C")
+                pdf.ln(2)
+
+            pdf.set_font("Helvetica", "", 10)
+            _specs = []
+            if _q: _specs.append(f"{int(_q)} quartos")
+            if _s: _specs.append(f"{int(_s)} suites")
+            if _b: _specs.append(f"{int(_b)} banheiros")
+            if _v: _specs.append(f"{int(_v)} vagas")
+            if _specs:
+                pdf.cell(0, 7, " | ".join(_specs), new_x="LMARGIN", new_y="NEXT", align="C")
+            pdf.ln(6)
+
+            # Linha decorativa
+            pdf.set_draw_color(200, 170, 100)
+            pdf.line(30, pdf.get_y(), 180, pdf.get_y())
+            pdf.ln(6)
+
+            # ── Pitch / Apresentação ──
+            pdf.set_font("Helvetica", "", 11)
+            pdf.set_text_color(40, 40, 40)
+            _pitch_clean = pitch_text.encode("latin-1", errors="replace").decode("latin-1")
+            pdf.multi_cell(0, 6, _pitch_clean, align="J")
+            pdf.ln(8)
+
+            # ── Rodapé personalizado (assinatura) ──
+            pdf.set_font("Helvetica", "I", 11)
+            pdf.set_text_color(60, 60, 60)
+            _rodape_clean = rodape_texto.encode("latin-1", errors="replace").decode("latin-1")
+            pdf.cell(0, 8, _rodape_clean, new_x="LMARGIN", new_y="NEXT")
+            pdf.ln(5)
+
+            # ── Fotos centralizadas ──
+            if fotos_list:
                 pdf.add_page()
 
-                # Título
-                pdf.set_font("Helvetica", "B", 18)
-                pdf.cell(0, 12, dados.get("titulo_vitrine", "Imovel"), new_x="LMARGIN", new_y="NEXT")
-                pdf.set_font("Helvetica", "", 10)
-                pdf.set_text_color(100, 100, 100)
-                _end = f"{dados.get('endereco', '')} - {dados.get('bairro', '')}, Brasilia - DF"
-                pdf.cell(0, 6, _end, new_x="LMARGIN", new_y="NEXT")
-                pdf.ln(5)
+                for i, foto_url in enumerate(fotos_list):
+                    try:
+                        resp = req_http.get(foto_url, timeout=10)
+                        if resp.status_code == 200:
+                            suffix = ".jpg"
+                            if "png" in foto_url.lower(): suffix = ".png"
+                            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                                tmp.write(resp.content)
+                                tmp_path = tmp.name
 
-                # Dados do imóvel
-                pdf.set_text_color(0, 0, 0)
-                pdf.set_font("Helvetica", "B", 12)
-                pdf.cell(0, 8, "Dados do Imovel", new_x="LMARGIN", new_y="NEXT")
-                pdf.set_font("Helvetica", "", 10)
+                            # Verificar se cabe na página (foto grande centralizada)
+                            if pdf.get_y() > 170:
+                                pdf.add_page()
 
-                _preco = dados.get("preco")
-                _area = dados.get("area_util")
-                _pm2 = dados.get("preco_m2")
-                _dados_txt = []
-                if _preco: _dados_txt.append(f"Preco: R$ {_br(_preco)}")
-                if _area: _dados_txt.append(f"Area: {_br(_area)} m2")
-                if _pm2: _dados_txt.append(f"R$/m2: R$ {_br(_pm2)}")
-                _q = dados.get("quartos")
-                _s = dados.get("suites")
-                _v = dados.get("vagas")
-                _b = dados.get("banheiros")
-                _specs = []
-                if _q: _specs.append(f"{int(_q)} quartos")
-                if _s: _specs.append(f"{int(_s)} suites")
-                if _b: _specs.append(f"{int(_b)} banheiros")
-                if _v: _specs.append(f"{int(_v)} vagas")
-                if _specs: _dados_txt.append(" | ".join(_specs))
+                            # Foto centralizada e maior (160mm de largura)
+                            _page_w = pdf.w - pdf.l_margin - pdf.r_margin
+                            _img_w = min(170, _page_w)
+                            _x = (pdf.w - _img_w) / 2
+                            pdf.image(tmp_path, x=_x, w=_img_w)
+                            pdf.ln(5)
+                    except Exception:
+                        pass
 
-                for linha in _dados_txt:
-                    pdf.cell(0, 6, linha, new_x="LMARGIN", new_y="NEXT")
-                pdf.ln(5)
+            return bytes(pdf.output())
 
-                # Pitch
-                pdf.set_font("Helvetica", "B", 12)
-                pdf.cell(0, 8, "Apresentacao", new_x="LMARGIN", new_y="NEXT")
-                pdf.set_font("Helvetica", "", 10)
-                # Limpar caracteres problemáticos para latin-1
-                _pitch_clean = pitch_text.encode("latin-1", errors="replace").decode("latin-1")
-                pdf.multi_cell(0, 6, _pitch_clean)
-                pdf.ln(5)
-
-                # Fotos
-                if fotos_list:
-                    pdf.set_font("Helvetica", "B", 12)
-                    pdf.cell(0, 8, "Fotos", new_x="LMARGIN", new_y="NEXT")
-                    pdf.ln(3)
-
-                    for i, foto_url in enumerate(fotos_list[:8]):
-                        try:
-                            resp = req_http.get(foto_url, timeout=10)
-                            if resp.status_code == 200:
-                                # Salvar em arquivo temporário
-                                suffix = ".jpg"
-                                if "png" in foto_url.lower(): suffix = ".png"
-                                with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                                    tmp.write(resp.content)
-                                    tmp_path = tmp.name
-
-                                # Verificar se cabe na página
-                                if pdf.get_y() > 200:
-                                    pdf.add_page()
-
-                                pdf.image(tmp_path, x=10, w=90)
-                                pdf.ln(3)
-                        except Exception:
-                            pass
-
-                return bytes(pdf.output())
-
-            if st.button("📄 Gerar PDF (Pitch + Fotos)", use_container_width=True):
-                with st.spinner("📄 Gerando PDF..."):
-                    _pdf_bytes = gerar_pdf_imovel(_r.to_dict(), _pitch, _fotos_pdf)
-                st.session_state["pdf_bytes"] = _pdf_bytes
-                st.session_state["pdf_nome"] = f"imovel_{_r.get('bairro', 'brasilia').replace(' ', '_')}.pdf"
+        if st.button("📄 Gerar PDF", use_container_width=True):
+            with st.spinner("📄 Gerando PDF com fotos selecionadas..."):
+                _pdf_bytes = gerar_pdf_imovel(_r.to_dict(), _pitch, _fotos_pdf, _rodape)
+            st.session_state["pdf_bytes"] = _pdf_bytes
+            st.session_state["pdf_nome"] = f"imovel_{_r.get('bairro', 'brasilia').replace(' ', '_')}.pdf"
 
         if "pdf_bytes" in st.session_state:
             st.download_button(
@@ -528,19 +613,8 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
                 mime="application/pdf",
                 use_container_width=True,
             )
-            st.caption("Envie este PDF como anexo no WhatsApp junto com o pitch.")
 
     st.divider()
-
-    # ── Fotos do imóvel (para o corretor baixar e enviar) ──
-    _fotos_raw = _r.get("fotos_urls", "")
-    _fotos = [f.strip() for f in str(_fotos_raw).split("|") if f.strip() and f.strip().startswith("http")] if pd.notna(_fotos_raw) else []
-    if _fotos:
-        with st.expander(f"📸 Fotos do Anúncio ({len(_fotos)} fotos) — clique para expandir"):
-            _cols_foto = st.columns(3)
-            for i, foto_url in enumerate(_fotos[:12]):
-                with _cols_foto[i % 3]:
-                    st.image(foto_url, use_container_width=True)
 
     # ── Link ──
     if pd.notna(_r.get("url")):
