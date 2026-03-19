@@ -202,14 +202,15 @@ def carregar_dados():
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
     # Remover outliers absurdos (erros de cadastro no site)
-    df.loc[df["preco"] > 50_000_000, "preco"] = None
-    df.loc[df["area_util"] > 10_000, "area_util"] = None
+    # Limites baseados no percentil 99 dos dados reais
+    df = df[(df["preco"] > 0) & (df["preco"] <= 20_000_000)]
+    df.loc[df["area_util"] > 20_000, "area_util"] = None
+    df.loc[df["area_util"] <= 0, "area_util"] = None
     df["preco_m2"] = df.apply(
-        lambda r: r["preco"] / r["area_util"]
+        lambda r: round(r["preco"] / r["area_util"], 2)
         if pd.notna(r["preco"]) and pd.notna(r["area_util"]) and r["area_util"] > 0
         else None, axis=1
     )
-    df = df[df["preco"].notna()]
 
     def detectar_tipo(url):
         u = str(url).lower()
