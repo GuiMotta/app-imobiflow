@@ -401,7 +401,7 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
 
             "TOM E FORMATO:\n"
             "- Tom profissional, sóbrio e exclusivo, como um consultor de alto padrão falando com seu cliente.\n"
-            "- Use no MÁXIMO 2 emojis em toda a mensagem. Menos é mais.\n"
+            "- NÃO use emojis. Zero emojis. Texto 100% limpo e profissional.\n"
             "- NÃO use formatação markdown (sem **, ##, etc). Texto puro para WhatsApp.\n"
             "- NÃO comece com saudações genéricas (Olá, Boa tarde, etc). Vá direto ao ponto.\n"
             "- Contexto Brasília: referencie setores e regiões do DF somente se dedutível dos dados."
