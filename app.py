@@ -803,10 +803,11 @@ st.title("🏠 ImobiFlow — Dashboard Imóveis DF")
 st.caption("📦 Fonte: Supabase PostgreSQL — `public.imoveis`")
 
 # ── Abas principais ───────────────────────────────────────────────────────────
-tab_mercado, tab_mapa, tab_opor = st.tabs([
+tab_mercado, tab_mapa, tab_opor, tab_meta = st.tabs([
     "📊 Mercado",
     "🗺️ Mapa & Tabela",
     "🎯 Oportunidades",
+    "📣 Campanhas",
 ])
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -1309,6 +1310,95 @@ with tab_opor:
                 f"{_linhas_v}\n\n📊 ImobiFlow Dashboard",
                 "📲 Compartilhar oportunidades de venda no WhatsApp"
             )
+
+# ════════════════════════════════════════════════════════════════════════════════
+# ABA 4 — CAMPANHAS META ADS
+# ════════════════════════════════════════════════════════════════════════════════
+@st.cache_data(ttl=300)
+def _meta_insights(date_preset: str):
+    try:
+        from facebook_business.api import FacebookAdsApi
+        from facebook_business.adobjects.adaccount import AdAccount
+        token      = st.secrets["META_ACCESS_TOKEN"]
+        account_id = st.secrets.get("META_AD_ACCOUNT_ID", "act_1968902677045350")
+        FacebookAdsApi.init(access_token=token)
+        account = AdAccount(account_id)
+        fields = ["campaign_name", "impressions", "reach", "clicks", "ctr", "spend", "actions"]
+        params = {"date_preset": date_preset, "level": "campaign"}
+        rows = []
+        for row in account.get_insights(fields=fields, params=params):
+            leads = sum(
+                int(a.get("value", 0))
+                for a in (row.get("actions") or [])
+                if a.get("action_type") == "lead"
+            )
+            rows.append({
+                "Campanha":      row.get("campaign_name", ""),
+                "Impressões":    int(row.get("impressions", 0)),
+                "Alcance":       int(row.get("reach", 0)),
+                "Cliques":       int(row.get("clicks", 0)),
+                "CTR (%)":       round(float(row.get("ctr", 0)), 2),
+                "Gasto (R$)":    round(float(row.get("spend", 0)), 2),
+                "Leads":         leads,
+            })
+        return rows, None
+    except Exception as e:
+        return [], str(e)
+
+with tab_meta:
+    st.subheader("📣 Campanhas Meta Ads")
+
+    PERIODOS = [
+        ("Hoje",           "today"),
+        ("Ontem",          "yesterday"),
+        ("Últimos 7 dias", "last_7d"),
+        ("Últimos 14 dias","last_14d"),
+        ("Últimos 30 dias","last_30d"),
+    ]
+    col_p, _ = st.columns([2, 5])
+    with col_p:
+        sel = st.selectbox("Período", PERIODOS, index=2, format_func=lambda x: x[0])
+
+    if st.button("🔄 Atualizar dados", key="meta_refresh"):
+        st.cache_data.clear()
+
+    insights, erro = _meta_insights(sel[1])
+
+    if erro:
+        st.error(f"Erro Meta API: {erro}")
+        st.info("Configure `META_ACCESS_TOKEN` nos Secrets do Streamlit Cloud.")
+    elif not insights:
+        st.warning("Nenhum dado encontrado para o período selecionado.")
+    else:
+        imp   = sum(r["Impressões"] for r in insights)
+        alc   = sum(r["Alcance"]    for r in insights)
+        cli   = sum(r["Cliques"]    for r in insights)
+        gas   = sum(r["Gasto (R$)"] for r in insights)
+        lea   = sum(r["Leads"]      for r in insights)
+        ctr   = round(cli / imp * 100, 2) if imp > 0 else 0
+        cpl   = round(gas / lea, 2)       if lea > 0 else 0
+        cpc   = round(gas / cli, 2)       if cli > 0 else 0
+
+        c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
+        c1.metric("Impressões",  f"{imp:,}")
+        c2.metric("Alcance",     f"{alc:,}")
+        c3.metric("Cliques",     f"{cli:,}")
+        c4.metric("CTR",         f"{ctr}%")
+        c5.metric("Gasto",       f"R$ {gas:.2f}")
+        c6.metric("Leads",       lea)
+        c7.metric("Custo/Lead",  f"R$ {cpl:.2f}" if lea > 0 else "—")
+
+        st.divider()
+        df_meta = pd.DataFrame(insights)
+        st.dataframe(df_meta, use_container_width=True, hide_index=True)
+
+        if len(insights) > 1:
+            fig = px.bar(
+                df_meta, x="Campanha", y="Gasto (R$)",
+                title="Gasto por campanha (R$)",
+                color="Cliques", color_continuous_scale="Blues",
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
 st.divider()
 st.caption("🚀 ImobiFlow © 2026 | Supabase PostgreSQL")
