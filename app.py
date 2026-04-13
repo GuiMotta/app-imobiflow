@@ -1318,7 +1318,7 @@ with tab_opor:
 # ════════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=300)
 def _carregar_metricas_ads(dias: int):
-    with get_conn() as conn:
+    with psycopg2.connect(get_connection_string(), sslmode="require") as conn:
         df = pd.read_sql(f"""
             SELECT
                 data,
@@ -1342,7 +1342,7 @@ def _carregar_metricas_ads(dias: int):
 
 @st.cache_data(ttl=300)
 def _carregar_metricas_site(dias: int):
-    with get_conn() as conn:
+    with psycopg2.connect(get_connection_string(), sslmode="require") as conn:
         df = pd.read_sql(f"""
             SELECT
                 DATE(data_hora)   AS data,
