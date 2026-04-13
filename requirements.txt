@@ -4,4 +4,3 @@ plotly>=5.24.0
 kaleido==0.2.1
 psycopg2-binary>=2.9.0
 fpdf2>=2.7.0
-facebook-business>=20.0.0

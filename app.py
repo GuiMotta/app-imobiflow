@@ -1312,93 +1312,117 @@ with tab_opor:
             )
 
 # ════════════════════════════════════════════════════════════════════════════════
-# ABA 4 — CAMPANHAS META ADS
+# ABA 4 — CAMPANHAS META ADS + GA4
+# Fonte: Supabase → metricas_ads / campanhas_meta / metricas_site
+# (populadas diariamente pelo pipeline ads-performance-analytics no Databricks)
 # ════════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=300)
-def _meta_insights(date_preset: str):
-    try:
-        from facebook_business.api import FacebookAdsApi
-        from facebook_business.adobjects.adaccount import AdAccount
-        token      = st.secrets["META_ACCESS_TOKEN"]
-        account_id = st.secrets.get("META_AD_ACCOUNT_ID", "act_1968902677045350")
-        FacebookAdsApi.init(access_token=token)
-        account = AdAccount(account_id)
-        fields = ["campaign_name", "impressions", "reach", "clicks", "ctr", "spend", "actions"]
-        params = {"date_preset": date_preset, "level": "campaign"}
-        rows = []
-        for row in account.get_insights(fields=fields, params=params):
-            leads = sum(
-                int(a.get("value", 0))
-                for a in (row.get("actions") or [])
-                if a.get("action_type") == "lead"
-            )
-            rows.append({
-                "Campanha":      row.get("campaign_name", ""),
-                "Impressões":    int(row.get("impressions", 0)),
-                "Alcance":       int(row.get("reach", 0)),
-                "Cliques":       int(row.get("clicks", 0)),
-                "CTR (%)":       round(float(row.get("ctr", 0)), 2),
-                "Gasto (R$)":    round(float(row.get("spend", 0)), 2),
-                "Leads":         leads,
-            })
-        return rows, None
-    except Exception as e:
-        return [], str(e)
+def _carregar_metricas_ads(dias: int):
+    with get_conn() as conn:
+        df = pd.read_sql(f"""
+            SELECT
+                data,
+                campaign_name,
+                SUM(impressions)   AS impressions,
+                SUM(reach)         AS reach,
+                SUM(clicks)        AS clicks,
+                SUM(spend)         AS spend,
+                AVG(ctr)           AS ctr,
+                AVG(cpc)           AS cpc,
+                AVG(cpm)           AS cpm,
+                SUM(link_clicks)   AS link_clicks,
+                SUM(messages)      AS messages,
+                SUM(landing_views) AS landing_views
+            FROM metricas_ads
+            WHERE data >= CURRENT_DATE - INTERVAL '{dias} days'
+            GROUP BY data, campaign_name
+            ORDER BY data DESC
+        """, conn)
+    return df
+
+@st.cache_data(ttl=300)
+def _carregar_metricas_site(dias: int):
+    with get_conn() as conn:
+        df = pd.read_sql(f"""
+            SELECT
+                DATE(data_hora)   AS data,
+                source,
+                medium,
+                campaign,
+                SUM(sessions)     AS sessions,
+                SUM(users)        AS users,
+                SUM(pageviews)    AS pageviews,
+                SUM(new_users)    AS new_users
+            FROM metricas_site
+            WHERE data_hora >= NOW() - INTERVAL '{dias} days'
+              AND medium = 'cpc'
+            GROUP BY DATE(data_hora), source, medium, campaign
+            ORDER BY data DESC
+        """, conn)
+    return df
 
 with tab_meta:
-    st.subheader("📣 Campanhas Meta Ads")
+    st.subheader("📣 Campanhas Meta Ads + Site")
 
-    PERIODOS = [
-        ("Hoje",           "today"),
-        ("Ontem",          "yesterday"),
-        ("Últimos 7 dias", "last_7d"),
-        ("Últimos 14 dias","last_14d"),
-        ("Últimos 30 dias","last_30d"),
-    ]
     col_p, _ = st.columns([2, 5])
     with col_p:
-        sel = st.selectbox("Período", PERIODOS, index=2, format_func=lambda x: x[0])
+        dias = st.selectbox("Período", [7, 14, 30], index=0,
+                            format_func=lambda x: f"Últimos {x} dias")
 
-    if st.button("🔄 Atualizar dados", key="meta_refresh"):
+    if st.button("🔄 Atualizar", key="meta_refresh"):
         st.cache_data.clear()
 
-    insights, erro = _meta_insights(sel[1])
+    df_ads  = _carregar_metricas_ads(dias)
+    df_site = _carregar_metricas_site(dias)
 
-    if erro:
-        st.error(f"Erro Meta API: {erro}")
-        st.info("Configure `META_ACCESS_TOKEN` nos Secrets do Streamlit Cloud.")
-    elif not insights:
-        st.warning("Nenhum dado encontrado para o período selecionado.")
+    if df_ads.empty:
+        st.warning("Sem dados de Meta Ads. Execute o pipeline ads-performance-analytics no Databricks.")
     else:
-        imp   = sum(r["Impressões"] for r in insights)
-        alc   = sum(r["Alcance"]    for r in insights)
-        cli   = sum(r["Cliques"]    for r in insights)
-        gas   = sum(r["Gasto (R$)"] for r in insights)
-        lea   = sum(r["Leads"]      for r in insights)
-        ctr   = round(cli / imp * 100, 2) if imp > 0 else 0
-        cpl   = round(gas / lea, 2)       if lea > 0 else 0
-        cpc   = round(gas / cli, 2)       if cli > 0 else 0
+        imp  = int(df_ads["impressions"].sum())
+        alc  = int(df_ads["reach"].sum())
+        cli  = int(df_ads["clicks"].sum())
+        gas  = float(df_ads["spend"].sum())
+        lc   = int(df_ads["link_clicks"].sum())
+        msg  = int(df_ads["messages"].sum())
+        ctr  = round(cli / imp * 100, 2) if imp > 0 else 0
+        cpc  = round(gas / cli, 2)       if cli > 0 else 0
 
         c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
-        c1.metric("Impressões",  f"{imp:,}")
-        c2.metric("Alcance",     f"{alc:,}")
-        c3.metric("Cliques",     f"{cli:,}")
-        c4.metric("CTR",         f"{ctr}%")
-        c5.metric("Gasto",       f"R$ {gas:.2f}")
-        c6.metric("Leads",       lea)
-        c7.metric("Custo/Lead",  f"R$ {cpl:.2f}" if lea > 0 else "—")
+        c1.metric("Impressões",    f"{imp:,}")
+        c2.metric("Alcance",       f"{alc:,}")
+        c3.metric("Cliques",       f"{cli:,}")
+        c4.metric("CTR",           f"{ctr}%")
+        c5.metric("Gasto",         f"R$ {gas:.2f}")
+        c6.metric("Link Clicks",   f"{lc:,}")
+        c7.metric("Msgs WhatsApp", f"{msg:,}")
 
         st.divider()
-        df_meta = pd.DataFrame(insights)
-        st.dataframe(df_meta, use_container_width=True, hide_index=True)
 
-        if len(insights) > 1:
-            fig = px.bar(
-                df_meta, x="Campanha", y="Gasto (R$)",
-                title="Gasto por campanha (R$)",
-                color="Cliques", color_continuous_scale="Blues",
-            )
-            st.plotly_chart(fig, use_container_width=True)
+        # Gasto diário
+        df_dia = df_ads.groupby("data")[["spend", "clicks", "impressions"]].sum().reset_index()
+        fig_gasto = px.bar(df_dia, x="data", y="spend",
+                           title="Gasto diário (R$)", labels={"spend": "R$", "data": ""})
+        st.plotly_chart(fig_gasto, use_container_width=True)
+
+        # Tabela por campanha
+        st.markdown("**Por campanha**")
+        df_camp = df_ads.groupby("campaign_name").agg(
+            Impressões=("impressions", "sum"),
+            Cliques=("clicks", "sum"),
+            Gasto=("spend", "sum"),
+            Link_Clicks=("link_clicks", "sum"),
+            Msgs=("messages", "sum"),
+        ).reset_index().rename(columns={"campaign_name": "Campanha"})
+        st.dataframe(df_camp, use_container_width=True, hide_index=True)
+
+    # GA4 — sessões pagas
+    if not df_site.empty:
+        st.divider()
+        st.markdown("**Sessões pagas no site (GA4 · medium=cpc)**")
+        df_s = df_site.groupby("data")[["sessions", "users", "pageviews"]].sum().reset_index()
+        fig_site = px.line(df_s, x="data", y="sessions",
+                           title="Sessões pagas por dia", labels={"sessions": "Sessões", "data": ""})
+        st.plotly_chart(fig_site, use_container_width=True)
 
 st.divider()
 st.caption("🚀 ImobiFlow © 2026 | Supabase PostgreSQL")
