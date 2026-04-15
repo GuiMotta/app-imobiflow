@@ -1319,37 +1319,45 @@ with tab_opor:
 @st.cache_data(ttl=300)
 def _carregar_imoveis_mais_acessados(dias: int):
     with psycopg2.connect(get_connection_string(), sslmode="require") as conn:
-        df_rank = pd.read_sql(f"""
+        df_join = pd.read_sql(f"""
+            WITH rank AS (
+                SELECT
+                    page_path,
+                    REPLACE(page_path, '/imoveis/', '') AS slug,
+                    SUM(pageviews)                        AS total_pageviews,
+                    SUM(sessions)                         AS total_sessoes,
+                    SUM(users)                            AS total_usuarios,
+                    ROUND(AVG(avg_duration_sec)::numeric) AS media_tempo_seg,
+                    ROUND((AVG(engagement_rate)*100)::numeric,1) AS engagement_pct
+                FROM metricas_site
+                WHERE page_path LIKE '/imoveis/%'
+                  AND data_hora >= NOW() - INTERVAL '{dias} days'
+                GROUP BY page_path
+                ORDER BY total_pageviews DESC
+                LIMIT 30
+            )
             SELECT
-                m.page_path,
-                SUM(m.pageviews)                        AS total_pageviews,
-                SUM(m.sessions)                         AS total_sessions,
-                SUM(m.users)                            AS total_usuarios,
-                ROUND(AVG(m.avg_duration_sec)::numeric) AS media_tempo_seg,
-                ROUND((AVG(m.engagement_rate)*100)::numeric,1) AS engagement_pct
-            FROM metricas_site m
-            WHERE m.page_path LIKE '/imoveis/%'
-              AND m.data_hora >= NOW() - INTERVAL '{dias} days'
-            GROUP BY m.page_path
-            ORDER BY total_pageviews DESC
-            LIMIT 30
+                r.page_path,
+                r.total_pageviews,
+                r.total_usuarios,
+                r.media_tempo_seg,
+                r.engagement_pct,
+                COALESCE(i.bairro,    b.bairro)    AS bairro,
+                COALESCE(i.preco,     b.preco)     AS preco,
+                COALESCE(i.area_util, b.area_util) AS area_util,
+                COALESCE(i.quartos,   b.quartos)   AS quartos,
+                COALESCE(i.banheiros, b.banheiros) AS banheiros,
+                COALESCE(i.endereco,  b.endereco)  AS endereco,
+                i.corretor,
+                i.preco_m2,
+                'https://vivianetolentinoimoveis.com.br' || r.page_path AS url_site,
+                COALESCE(i.codigo_anuncio, b.slug) AS codigo_anuncio
+            FROM rank r
+            LEFT JOIN imoveis i
+                ON r.slug = i.codigo_anuncio
+            LEFT JOIN imoveis_bordalo b
+                ON r.slug = b.slug
         """, conn)
-
-    if df_rank.empty:
-        return df_rank
-
-    # Extrai slug do page_path e junta com dados do imóvel
-    df_rank["slug"] = df_rank["page_path"].str.replace("/imoveis/", "", regex=False)
-
-    # Extrai codigo_anuncio (último segmento numérico do slug, ex: 1318878)
-    df_rank["codigo_anuncio"] = df_rank["slug"].str.extract(r"-(\d+)$")[0]
-
-    # Junta com df de imóveis para pegar bairro, preco, url, etc.
-    df_join = df_rank.merge(
-        df[["codigo_anuncio", "bairro", "preco", "area_util", "preco_m2",
-            "quartos", "banheiros", "endereco", "corretor", "url", "tipo_imovel"]],
-        on="codigo_anuncio", how="left"
-    )
     return df_join
 
 
@@ -1479,14 +1487,15 @@ with tab_meta:
         st.markdown("")
 
         # Prepara df para o grid
-        df_grid_rank = df_rank[[
-            "bairro", "tipo_imovel", "preco", "area_util", "preco_m2",
-            "quartos", "banheiros", "endereco", "corretor", "url",
+        _cols_disp = [c for c in [
+            "bairro", "preco", "area_util", "preco_m2",
+            "quartos", "banheiros", "endereco", "corretor",
             "total_pageviews", "total_usuarios", "media_tempo_seg", "engagement_pct",
-            "codigo_anuncio"
-        ]].copy()
+            "url_site", "codigo_anuncio"
+        ] if c in df_rank.columns]
+        df_grid_rank = df_rank[_cols_disp].copy()
 
-        # Formata colunas de métricas antes de passar ao montar_grid
+        # Formata colunas de métricas
         df_grid_rank["total_pageviews"] = df_grid_rank["total_pageviews"].apply(
             lambda v: f"{int(v):,}".replace(",", ".") if pd.notna(v) else "—"
         )
@@ -1502,7 +1511,6 @@ with tab_meta:
         )
 
         df_grid_rank = df_grid_rank.rename(columns={
-            "tipo_imovel":      "Tipo",
             "total_pageviews":  "👁️ Views",
             "total_usuarios":   "👤 Usuários",
             "media_tempo_seg":  "⏱️ Tempo Médio",
@@ -1515,33 +1523,38 @@ with tab_meta:
             if c in df_grid_rank.columns:
                 df_grid_rank[c] = df_grid_rank[c].apply(fn)
 
-        # Link de anúncio
-        if "url" in df_grid_rank.columns:
-            df_grid_rank["🔗 Ver anúncio"] = df_grid_rank["url"]
-        df_grid_rank = df_grid_rank.drop(columns=["url"], errors="ignore")
+        # Link para o site
+        if "url_site" in df_grid_rank.columns:
+            df_grid_rank["🔗 Ver no site"] = df_grid_rank["url_site"]
+        df_grid_rank = df_grid_rank.drop(columns=["url_site"], errors="ignore")
 
-        # Link Pitch IA
+        # Link Pitch IA (só funciona para imóveis DFImoveis que têm página de detalhe)
         _tk2 = _gerar_token()
         if "codigo_anuncio" in df_grid_rank.columns:
             df_grid_rank["🤖 Pitch IA"] = df_grid_rank["codigo_anuncio"].apply(
-                lambda c: f"https://imobiflow.streamlit.app/?imovel={c}&token={_tk2}" if pd.notna(c) else ""
+                lambda c: f"https://imobiflow.streamlit.app/?imovel={c}&token={_tk2}"
+                if pd.notna(c) and c else ""
             )
         df_grid_rank = df_grid_rank.drop(columns=["codigo_anuncio"], errors="ignore")
 
-        # Ordem das colunas
+        # Renomeia e ordena
+        df_grid_rank = df_grid_rank.rename(columns={
+            "bairro":    "Bairro",
+            "preco":     "Preço (R$)",
+            "area_util": "Área (m²)",
+            "preco_m2":  "R$/m²",
+            "quartos":   "Quartos",
+            "banheiros": "Banheiros",
+            "endereco":  "Endereço",
+            "corretor":  "Corretor/Imobiliária",
+        })
         _ordem_rank = [
-            "Tipo", "bairro", "Endereço", "Preço (R$)", "R$/m²", "Área (m²)",
+            "Bairro", "Endereço", "Preço (R$)", "R$/m²", "Área (m²)",
             "Quartos", "Banheiros", "Corretor/Imobiliária",
             "👁️ Views", "👤 Usuários", "⏱️ Tempo Médio", "📈 Engajamento",
-            "🤖 Pitch IA", "🔗 Ver anúncio",
+            "🤖 Pitch IA", "🔗 Ver no site",
         ]
-        df_grid_rank = df_grid_rank.rename(columns={
-            "bairro": "Bairro", "preco": "Preço (R$)", "area_util": "Área (m²)",
-            "preco_m2": "R$/m²", "quartos": "Quartos", "banheiros": "Banheiros",
-            "endereco": "Endereço", "corretor": "Corretor/Imobiliária",
-        })
-        _cols_rank = [c for c in _ordem_rank if c in df_grid_rank.columns]
-        df_grid_rank = df_grid_rank[_cols_rank]
+        df_grid_rank = df_grid_rank[[c for c in _ordem_rank if c in df_grid_rank.columns]]
 
         st.dataframe(
             df_grid_rank,
@@ -1549,8 +1562,8 @@ with tab_meta:
             hide_index=True,
             height=500,
             column_config={
-                "🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir"),
-                "🤖 Pitch IA":    st.column_config.LinkColumn(display_text="🤖 Pitch IA"),
+                "🔗 Ver no site": st.column_config.LinkColumn(display_text="🌐 Abrir no site"),
+                "🤖 Pitch IA":   st.column_config.LinkColumn(display_text="🤖 Pitch IA"),
             },
         )
 
