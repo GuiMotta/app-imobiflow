@@ -1317,6 +1317,43 @@ with tab_opor:
 # (populadas diariamente pelo pipeline ads-performance-analytics no Databricks)
 # ════════════════════════════════════════════════════════════════════════════════
 @st.cache_data(ttl=300)
+def _carregar_imoveis_mais_acessados(dias: int):
+    with psycopg2.connect(get_connection_string(), sslmode="require") as conn:
+        df_rank = pd.read_sql(f"""
+            SELECT
+                m.page_path,
+                SUM(m.pageviews)                        AS total_pageviews,
+                SUM(m.sessions)                         AS total_sessions,
+                SUM(m.users)                            AS total_usuarios,
+                ROUND(AVG(m.avg_duration_sec)::numeric) AS media_tempo_seg,
+                ROUND((AVG(m.engagement_rate)*100)::numeric,1) AS engagement_pct
+            FROM metricas_site m
+            WHERE m.page_path LIKE '/imoveis/%'
+              AND m.data_hora >= NOW() - INTERVAL '{dias} days'
+            GROUP BY m.page_path
+            ORDER BY total_pageviews DESC
+            LIMIT 30
+        """, conn)
+
+    if df_rank.empty:
+        return df_rank
+
+    # Extrai slug do page_path e junta com dados do imóvel
+    df_rank["slug"] = df_rank["page_path"].str.replace("/imoveis/", "", regex=False)
+
+    # Extrai codigo_anuncio (último segmento numérico do slug, ex: 1318878)
+    df_rank["codigo_anuncio"] = df_rank["slug"].str.extract(r"-(\d+)$")[0]
+
+    # Junta com df de imóveis para pegar bairro, preco, url, etc.
+    df_join = df_rank.merge(
+        df[["codigo_anuncio", "bairro", "preco", "area_util", "preco_m2",
+            "quartos", "banheiros", "endereco", "corretor", "url", "tipo_imovel"]],
+        on="codigo_anuncio", how="left"
+    )
+    return df_join
+
+
+@st.cache_data(ttl=300)
 def _carregar_metricas_ads(dias: int):
     with psycopg2.connect(get_connection_string(), sslmode="require") as conn:
         df = pd.read_sql(f"""
@@ -1423,6 +1460,99 @@ with tab_meta:
         fig_site = px.line(df_s, x="data", y="sessions",
                            title="Sessões pagas por dia", labels={"sessions": "Sessões", "data": ""})
         st.plotly_chart(fig_site, use_container_width=True)
+
+    # ── Imóveis mais acessados ─────────────────────────────────────────────────
+    st.divider()
+    st.subheader("🏆 Imóveis Mais Acessados no Site")
+
+    df_rank = _carregar_imoveis_mais_acessados(dias)
+
+    if df_rank.empty:
+        st.info("Nenhum acesso a páginas de imóveis no período.")
+    else:
+        # KPIs rápidos
+        _r1, _r2, _r3 = st.columns(3)
+        _r1.metric("Páginas únicas",    len(df_rank))
+        _r2.metric("Total de views",    f"{int(df_rank['total_pageviews'].sum()):,}".replace(",", "."))
+        _r3.metric("Usuários únicos",   f"{int(df_rank['total_usuarios'].sum()):,}".replace(",", "."))
+
+        st.markdown("")
+
+        # Prepara df para o grid
+        df_grid_rank = df_rank[[
+            "bairro", "tipo_imovel", "preco", "area_util", "preco_m2",
+            "quartos", "banheiros", "endereco", "corretor", "url",
+            "total_pageviews", "total_usuarios", "media_tempo_seg", "engagement_pct",
+            "codigo_anuncio"
+        ]].copy()
+
+        # Formata colunas de métricas antes de passar ao montar_grid
+        df_grid_rank["total_pageviews"] = df_grid_rank["total_pageviews"].apply(
+            lambda v: f"{int(v):,}".replace(",", ".") if pd.notna(v) else "—"
+        )
+        df_grid_rank["total_usuarios"] = df_grid_rank["total_usuarios"].apply(
+            lambda v: f"{int(v):,}".replace(",", ".") if pd.notna(v) else "—"
+        )
+        df_grid_rank["media_tempo_seg"] = df_grid_rank["media_tempo_seg"].apply(
+            lambda v: f"{int(v//60)}m{int(v%60):02d}s" if pd.notna(v) and v >= 60
+                      else (f"{int(v)}s" if pd.notna(v) else "—")
+        )
+        df_grid_rank["engagement_pct"] = df_grid_rank["engagement_pct"].apply(
+            lambda v: f"{v:.1f}%" if pd.notna(v) else "—"
+        )
+
+        df_grid_rank = df_grid_rank.rename(columns={
+            "tipo_imovel":      "Tipo",
+            "total_pageviews":  "👁️ Views",
+            "total_usuarios":   "👤 Usuários",
+            "media_tempo_seg":  "⏱️ Tempo Médio",
+            "engagement_pct":   "📈 Engajamento",
+        })
+
+        # Formata colunas numéricas padrão
+        for c, fn in [("preco", fmt_moeda), ("preco_m2", fmt_moeda),
+                      ("area_util", fmt_area), ("quartos", fmt_int), ("banheiros", fmt_int)]:
+            if c in df_grid_rank.columns:
+                df_grid_rank[c] = df_grid_rank[c].apply(fn)
+
+        # Link de anúncio
+        if "url" in df_grid_rank.columns:
+            df_grid_rank["🔗 Ver anúncio"] = df_grid_rank["url"]
+        df_grid_rank = df_grid_rank.drop(columns=["url"], errors="ignore")
+
+        # Link Pitch IA
+        _tk2 = _gerar_token()
+        if "codigo_anuncio" in df_grid_rank.columns:
+            df_grid_rank["🤖 Pitch IA"] = df_grid_rank["codigo_anuncio"].apply(
+                lambda c: f"https://imobiflow.streamlit.app/?imovel={c}&token={_tk2}" if pd.notna(c) else ""
+            )
+        df_grid_rank = df_grid_rank.drop(columns=["codigo_anuncio"], errors="ignore")
+
+        # Ordem das colunas
+        _ordem_rank = [
+            "Tipo", "bairro", "Endereço", "Preço (R$)", "R$/m²", "Área (m²)",
+            "Quartos", "Banheiros", "Corretor/Imobiliária",
+            "👁️ Views", "👤 Usuários", "⏱️ Tempo Médio", "📈 Engajamento",
+            "🤖 Pitch IA", "🔗 Ver anúncio",
+        ]
+        df_grid_rank = df_grid_rank.rename(columns={
+            "bairro": "Bairro", "preco": "Preço (R$)", "area_util": "Área (m²)",
+            "preco_m2": "R$/m²", "quartos": "Quartos", "banheiros": "Banheiros",
+            "endereco": "Endereço", "corretor": "Corretor/Imobiliária",
+        })
+        _cols_rank = [c for c in _ordem_rank if c in df_grid_rank.columns]
+        df_grid_rank = df_grid_rank[_cols_rank]
+
+        st.dataframe(
+            df_grid_rank,
+            use_container_width=True,
+            hide_index=True,
+            height=500,
+            column_config={
+                "🔗 Ver anúncio": st.column_config.LinkColumn(display_text="🏠 Abrir"),
+                "🤖 Pitch IA":    st.column_config.LinkColumn(display_text="🤖 Pitch IA"),
+            },
+        )
 
 st.divider()
 st.caption("🚀 ImobiFlow © 2026 | Supabase PostgreSQL")
