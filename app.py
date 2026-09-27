@@ -442,11 +442,13 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
         with st.spinner("✨ Gerando pitch inteligente..."):
             _pitch = gerar_pitch_ia(_r.to_dict())
         st.session_state["pitch_gerado"] = _pitch
+        st.session_state["pitch_edit"] = _pitch  # novo pitch substitui a edição anterior
 
-    # Exibir pitch gerado
+    # Exibir pitch gerado (editável — edição vale para WhatsApp e PDF)
     if "pitch_gerado" in st.session_state:
-        _pitch = st.session_state["pitch_gerado"]
-        st.text_area("📝 Pitch gerado:", _pitch, height=200)
+        st.session_state.setdefault("pitch_edit", st.session_state["pitch_gerado"])
+        st.text_area("📝 Pitch gerado (editável):", key="pitch_edit", height=200)
+        _pitch = st.session_state["pitch_edit"]
 
         _wa_pitch = wa_link(_pitch)
         st.link_button("📲 Enviar Pitch via WhatsApp", _wa_pitch, use_container_width=True, type="primary")
@@ -594,7 +596,12 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
             # ── Pitch / Apresentação ──
             pdf.set_font("Montserrat", "", 11)
             pdf.set_text_color(40, 40, 40)
-            pdf.multi_cell(0, 6, pitch_text, align="J")
+            # Pitch vem com uma frase por linha (formato WhatsApp); o fpdf não justifica
+            # a última linha de cada parágrafo, então junta as linhas em parágrafos
+            # (linha em branco continua separando parágrafos)
+            _paragrafos = [" ".join(l.strip() for l in p.splitlines() if l.strip())
+                           for p in re.split(r"\n\s*\n", pitch_text.strip())]
+            pdf.multi_cell(0, 6, "\n\n".join(p for p in _paragrafos if p), align="J")
             pdf.ln(8)
 
             # ── Assinatura personalizada ──
