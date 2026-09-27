@@ -408,13 +408,16 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
         )
 
         payload = {
-            "model": "llama-3.3-70b-versatile",
+            # llama-3.3-70b-versatile virou enterprise-only no Groq (404 model_not_found)
+            "model": "openai/gpt-oss-120b",
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": f"Ficha técnica e descrição do imóvel:\n\n{ficha_tecnica}"}
             ],
             "temperature": 0.15,
-            "max_tokens": 500,
+            # modelo de raciocínio: tokens de reasoning contam no limite
+            "reasoning_effort": "low",
+            "max_tokens": 2000,
         }
 
         try:
