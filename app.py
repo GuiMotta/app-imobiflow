@@ -1089,13 +1089,13 @@ with tab_mapa:
     if df_map.empty:
         st.info("Nenhum imóvel com coordenadas nos filtros atuais.")
     else:
-        fig_map = px.scatter_mapbox(
+        fig_map = px.scatter_map(
             df_map, lat="lat", lon="lon",
             color="preco", size="area_util_sz", size_max=20,
             hover_data=["bairro", "preco", "area_util", "quartos", "preco_m2", "endereco"],
             custom_data=["index"],          # ← índice original → usado no filtro da tabela
             color_continuous_scale="RdYlGn_r",
-            zoom=10.5, height=500, mapbox_style="carto-positron",
+            zoom=10.5, height=500, map_style="carto-positron",
             labels={"preco": "Preço (R$)"}
         )
         fig_map.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
