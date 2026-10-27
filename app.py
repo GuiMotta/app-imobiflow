@@ -823,12 +823,23 @@ tab_mercado, tab_apresentacao, tab_opor, tab_meta = st.tabs([
 # ABA 1 — MERCADO
 # ════════════════════════════════════════════════════════════════════════════════
 with tab_mercado:
-    # ── KPIs do mercado ──────────────────────────────────────────────────────
+    # ── KPIs principais ──────────────────────────────────────────────────────
     k1, k2, k3, k4 = st.columns(4)
     k1.metric("📋 Total Imóveis", f"{len(dff):,}".replace(",", "."))
     k2.metric("💰 Preço Médio",   f"R$ {_br(dff['preco'].mean())}")
     k3.metric("📐 Área Média",    f"{_br(dff['area_util'].mean())} m²")
     k4.metric("🏷️ R$/m² Médio",   f"R$ {_br(dff['preco_m2'].mean())}")
+
+    # ── Movimentação da semana (novos anúncios × retirados) ──────────────────
+    _hoje_tl = pd.Timestamp.today().normalize()
+    _7dias   = _hoje_tl - pd.Timedelta(days=6)
+    _total_novos = int(pd.to_datetime(dff["data_cadastro"], errors="coerce")
+                       .between(_7dias, _hoje_tl).sum())
+    _total_inat  = int(pd.to_datetime(df["dt_inativo"], errors="coerce")   # df completo (sem filtros)
+                       .between(_7dias, _hoje_tl).sum())
+    m1, m2, _ = st.columns([1, 1, 2])
+    m1.metric("✅ Novos anúncios (7 dias)", f"{_total_novos:,}".replace(",", "."))
+    m2.metric("❌ Saíram do mercado (7 dias)", f"{_total_inat:,}".replace(",", "."))
 
     _txt_kpi = (
         f"🏠 *Mercado Imobiliário — {filtro_label}*\n\n"
@@ -836,134 +847,17 @@ with tab_mercado:
         f"💰 Preço médio: R$ {_br(dff['preco'].mean())}\n"
         f"📐 Área média: {_br(dff['area_util'].mean())} m²\n"
         f"🏷️ R$/m² médio: R$ {_br(dff['preco_m2'].mean())}\n\n"
+        f"📅 Últimos 7 dias: {_total_novos} novos | {_total_inat} saíram\n\n"
         f"📊 Dados atualizados via ImobiFlow Dashboard"
     )
     wa_button(_txt_kpi, "📲 Compartilhar resumo do mercado no WhatsApp")
     st.divider()
 
-    # ── Timeline últimos 7 dias — Novos cadastros × Inativados ──────────────
-    st.subheader("📅 Movimentação nos Últimos 7 Dias — DF Imóveis")
-
-    _hoje_tl = pd.Timestamp.today().normalize()
-    _7dias   = _hoje_tl - pd.Timedelta(days=6)
-
-    # Novos cadastros por dia (usa data_cadastro = data_cadastro_site)
-    _dc = pd.to_datetime(dff["data_cadastro"], errors="coerce")
-    _dc_filtrado = _dc[_dc.between(_7dias, _hoje_tl)].dt.date
-    _novos_dict = _dc_filtrado.value_counts().to_dict()
-
-    # Inativados por dia (usa dt_inativo)
-    _di = pd.to_datetime(df["dt_inativo"], errors="coerce")  # usa df completo (sem filtros)
-    _di_filtrado = _di[_di.between(_7dias, _hoje_tl)].dt.date
-    _inat_dict = _di_filtrado.value_counts().to_dict()
-
-    # Montar dataframe da timeline com todos os 7 dias
-    _datas_range = pd.date_range(_7dias, _hoje_tl, freq="D").date
-    _tl = pd.DataFrame({
-        "Data": _datas_range,
-        "Novos anúncios": [int(_novos_dict.get(d, 0)) for d in _datas_range],
-        "Inativados":     [int(_inat_dict.get(d, 0))   for d in _datas_range],
-    })
-    _tl["Data"] = pd.to_datetime(_tl["Data"])
-
-    fig_tl = px.line(
-        _tl.melt(id_vars="Data", var_name="Tipo", value_name="Quantidade"),
-        x="Data", y="Quantidade", color="Tipo",
-        color_discrete_map={"Novos anúncios": "#2ecc71", "Inativados": "#e74c3c"},
-        labels={"Data": "", "Quantidade": "Qtd. Anúncios"},
-        markers=True, text="Quantidade",
-    )
-    fig_tl.update_traces(textposition="top center", line=dict(width=3))
-    fig_tl.update_layout(
-        height=320, legend=dict(orientation="h", y=1.12, x=0.5, xanchor="center"),
-        xaxis_tickformat="%d/%m",
-    )
-    st.plotly_chart(fig_tl, use_container_width=True, key="fig_timeline", config=CHART_CONFIG)
-
-    _total_novos = int(_tl["Novos anúncios"].sum())
-    _total_inat  = int(_tl["Inativados"].sum())
-    _txt_tl = (
-        f"📅 *Movimentação nos Últimos 7 dias — DF Imóveis*\n📍 {filtro_label}\n\n"
-        f"✅ Novos anúncios: {_total_novos}\n"
-        f"❌ Inativados: {_total_inat}\n"
-        f"📊 Saldo: {_total_novos - _total_inat:+d}\n\n"
-        f"📊 ImobiFlow Dashboard"
-    )
-    chart_actions(fig_tl, "timeline_7dias", _txt_tl)
-    st.divider()
-
-    # ── Ranking de Corretores/Imobiliárias — Cadastros × Retiradas ────────
-    _col_rank1, _col_rank2 = st.columns(2)
-
-    with _col_rank1:
-        st.subheader("🏆 Top Corretores — Mais Cadastros")
-        _dc_all = pd.to_datetime(dff["data_cadastro"], errors="coerce")
-        _df_novos_corr = dff[_dc_all.between(_7dias, _hoje_tl)].copy()
-        if not _df_novos_corr.empty and _df_novos_corr["corretor"].notna().any():
-            _rank_novos = (
-                _df_novos_corr.groupby("corretor").size()
-                .sort_values(ascending=False).head(10).reset_index()
-            )
-            _rank_novos.columns = ["Corretor/Imobiliária", "Cadastros"]
-            fig_rn = px.bar(
-                _rank_novos, x="Cadastros", y="Corretor/Imobiliária",
-                orientation="h", text="Cadastros",
-                color="Cadastros", color_continuous_scale="Greens",
-            )
-            fig_rn.update_traces(textposition="outside")
-            fig_rn.update_layout(
-                height=380, showlegend=False, coloraxis_showscale=False,
-                yaxis=dict(autorange="reversed"),
-            )
-            st.plotly_chart(fig_rn, use_container_width=True, key="fig_rank_novos", config=CHART_CONFIG)
-            _txt_rn = (
-                f"🏆 *Top Corretores — Mais Cadastros (7 dias)*\n📍 {filtro_label}\n\n"
-                + "\n".join(f"{i+1}. {r['Corretor/Imobiliária']}: {r['Cadastros']} anúncios"
-                            for i, r in _rank_novos.head(5).iterrows())
-                + "\n\n📊 ImobiFlow Dashboard"
-            )
-            chart_actions(fig_rn, "rank_corretores_cadastros", _txt_rn)
-        else:
-            st.info("Sem dados de cadastros nos últimos 7 dias.")
-
-    with _col_rank2:
-        st.subheader("📉 Top Corretores — Mais Retiradas")
-        _di_all = pd.to_datetime(df["dt_inativo"], errors="coerce")
-        _df_inat_corr = df[_di_all.between(_7dias, _hoje_tl)].copy()
-        if not _df_inat_corr.empty and "corretor" in _df_inat_corr.columns and _df_inat_corr["corretor"].notna().any():
-            _rank_inat = (
-                _df_inat_corr.groupby("corretor").size()
-                .sort_values(ascending=False).head(10).reset_index()
-            )
-            _rank_inat.columns = ["Corretor/Imobiliária", "Retiradas"]
-            fig_ri = px.bar(
-                _rank_inat, x="Retiradas", y="Corretor/Imobiliária",
-                orientation="h", text="Retiradas",
-                color="Retiradas", color_continuous_scale="Reds",
-            )
-            fig_ri.update_traces(textposition="outside")
-            fig_ri.update_layout(
-                height=380, showlegend=False, coloraxis_showscale=False,
-                yaxis=dict(autorange="reversed"),
-            )
-            st.plotly_chart(fig_ri, use_container_width=True, key="fig_rank_inat", config=CHART_CONFIG)
-            _txt_ri = (
-                f"📉 *Top Corretores — Mais Retiradas (7 dias)*\n📍 {filtro_label}\n\n"
-                + "\n".join(f"{i+1}. {r['Corretor/Imobiliária']}: {r['Retiradas']} retirados"
-                            for i, r in _rank_inat.head(5).iterrows())
-                + "\n\n📊 ImobiFlow Dashboard"
-            )
-            chart_actions(fig_ri, "rank_corretores_retiradas", _txt_ri)
-        else:
-            st.info("Sem dados de retiradas nos últimos 7 dias.")
-
-    st.divider()
-
-    # ── Gráficos de mercado ──────────────────────────────────────────────────
+    # ── Bairros: preço médio e R$/m² médio ───────────────────────────────────
     col1, col2 = st.columns(2)
 
     with col1:
-        st.subheader("💵 Preço Médio por Bairro (Top 15)")
+        st.subheader("💵 Preço Médio por Bairro")
         avg = (dff.groupby("bairro")["preco"].mean()
                   .sort_values(ascending=False).head(15).reset_index())
         avg["label"] = avg["preco"].apply(lambda x: f"R$ {_br(x)}")
@@ -983,68 +877,7 @@ with tab_mercado:
         chart_actions(fig, "preco_por_bairro", _txt)
 
     with col2:
-        st.subheader("📊 Distribuição de Preços")
-        fig = px.histogram(dff, x="preco", nbins=30,
-                           color_discrete_sequence=["#4C72B0"],
-                           labels={"preco": "Preço (R$)", "count": "Imóveis"})
-        fig.update_layout(height=420, showlegend=False, bargap=0.05)
-        st.plotly_chart(fig, use_container_width=True, key="fig_dist_preco", config=CHART_CONFIG)
-        _p25 = dff["preco"].quantile(0.25)
-        _p75 = dff["preco"].quantile(0.75)
-        _txt = (
-            f"📊 *Distribuição de Preços — {filtro_label}*\n\n"
-            f"💰 Mínimo: R$ {_br(dff['preco'].min())}\n"
-            f"💰 25%: R$ {_br(_p25)}\n"
-            f"💰 Mediana: R$ {_br(dff['preco'].median())}\n"
-            f"💰 75%: R$ {_br(_p75)}\n"
-            f"💰 Máximo: R$ {_br(dff['preco'].max())}\n\n"
-            f"📊 ImobiFlow Dashboard"
-        )
-        chart_actions(fig, "distribuicao_precos", _txt)
-
-    col3, col4 = st.columns(2)
-
-    with col3:
-        st.subheader("📐 Área Útil × Preço")
-        fig = px.scatter(dff.dropna(subset=["area_util", "preco"]),
-                         x="area_util", y="preco", color="bairro",
-                         hover_data=["endereco", "quartos", "preco_m2"],
-                         labels={"area_util": "Área Útil (m²)", "preco": "Preço (R$)"},
-                         opacity=0.7)
-        fig.update_layout(height=380, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True, key="fig_area_preco", config=CHART_CONFIG)
-        _txt = (
-            f"📐 *Área Útil × Preço — {filtro_label}*\n\n"
-            f"📐 Área mínima: {_br(dff['area_util'].min())} m²\n"
-            f"📐 Área média: {_br(dff['area_util'].mean())} m²\n"
-            f"📐 Área máxima: {_br(dff['area_util'].max())} m²\n\n"
-            f"📊 ImobiFlow Dashboard"
-        )
-        chart_actions(fig, "area_vs_preco", _txt)
-
-    with col4:
-        st.subheader("🛏️ Imóveis por Nº de Quartos")
-        qt = (dff["quartos"].dropna().astype(int)
-                  .value_counts().sort_index().reset_index())
-        qt.columns = ["quartos", "quantidade"]
-        fig = px.bar(qt, x="quartos", y="quantidade", text="quantidade",
-                     color="quantidade", color_continuous_scale="Teal",
-                     labels={"quartos": "Quartos", "quantidade": "Qtd."})
-        fig.update_traces(textposition="outside")
-        fig.update_layout(height=380, showlegend=False, coloraxis_showscale=False)
-        st.plotly_chart(fig, use_container_width=True, key="fig_quartos", config=CHART_CONFIG)
-        _txt = (
-            f"🛏️ *Imóveis por Nº de Quartos — {filtro_label}*\n\n"
-            + "\n".join(f"  {int(r['quartos'])} quartos: {int(r['quantidade'])} imóveis"
-                        for _, r in qt.iterrows())
-            + "\n\n📊 ImobiFlow Dashboard"
-        )
-        chart_actions(fig, "imoveis_por_quartos", _txt)
-
-    col5, col6 = st.columns(2)
-
-    with col5:
-        st.subheader("🏷️ R$/m² Médio por Bairro (Top 15)")
+        st.subheader("🏷️ R$/m² Médio por Bairro")
         avg_m2 = (dff.groupby("bairro")["preco_m2"].mean()
                      .sort_values(ascending=False).head(15).reset_index())
         avg_m2["label"] = avg_m2["preco_m2"].apply(lambda x: f"R$ {_br(x)}")
@@ -1063,24 +896,6 @@ with tab_mercado:
             + "\n\n📊 ImobiFlow Dashboard"
         )
         chart_actions(fig, "rpm2_por_bairro", _txt)
-
-    with col6:
-        st.subheader("📦 Box Plot de Preço por Quartos")
-        top_q = dff["quartos"].dropna().astype(int).value_counts().head(5).index
-        fig = px.box(dff[dff["quartos"].isin(top_q)].dropna(subset=["preco"]),
-                     x="quartos", y="preco", color="quartos",
-                     labels={"quartos": "Quartos", "preco": "Preço (R$)"},
-                     category_orders={"quartos": sorted(top_q)})
-        fig.update_layout(height=420, showlegend=False)
-        st.plotly_chart(fig, use_container_width=True, key="fig_boxplot", config=CHART_CONFIG)
-        _medians = (dff[dff["quartos"].isin(top_q)]
-                    .groupby("quartos")["preco"].median().sort_index())
-        _txt = (
-            f"📦 *Preço Mediano por Nº de Quartos — {filtro_label}*\n\n"
-            + "\n".join(f"  {int(q)} quartos: R$ {_br(v)}" for q, v in _medians.items())
-            + "\n\n📊 ImobiFlow Dashboard"
-        )
-        chart_actions(fig, "boxplot_preco_quartos", _txt)
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ABA 2 — APRESENTAÇÃO P/ CLIENTE
