@@ -108,7 +108,6 @@ def google_sv_link(row):
     return ""
 
 CHART_CONFIG = {"displayModeBar": "hover"}   # barra aparece ao passar o mouse
-MAP_CONFIG   = {"scrollZoom": True, "displayModeBar": False}  # mapa sem barra (ocupa espaço)
 
 def chart_actions(fig, filename: str, wa_texto: str, wa_label: str = "📲 Compartilhar no WhatsApp"):
     try:
@@ -124,7 +123,7 @@ def chart_actions(fig, filename: str, wa_texto: str, wa_label: str = "📲 Compa
         wa_button(wa_texto, wa_label)
 
 def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=480,
-                show_street_view=False, show_pitch=False):
+                show_street_view=False, show_pitch=False, pitch_label="🤖 Pitch IA"):
     """
     Monta grid com colunas formatadas.
     col_extra: nome de coluna extra (ex: 'Bloco', 'Conjunto') a inserir no início.
@@ -145,7 +144,7 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
     # Token de autenticação para links que abrem em nova aba
     _tk = _gerar_token()
 
-    # Coluna 🤖 Pitch IA — abre página de detalhes com gerador de pitch (Mapa + Tabela)
+    # Coluna 🤖 Pitch IA — abre página de detalhes com gerador de pitch (aba Apresentação)
     if show_pitch and "codigo_anuncio" in df_raw.columns:
         df_g["🤖 Pitch IA"] = df_raw["codigo_anuncio"].apply(
             lambda c: f"https://imobiflow.streamlit.app/?imovel={c}&token={_tk}" if pd.notna(c) else ""
@@ -198,7 +197,7 @@ def montar_grid(df_raw, key_prefix: str, cols_base=None, col_extra=None, altura=
         "📲 WA":          st.column_config.LinkColumn(display_text="📲 WhatsApp"),
     }
     if "🤖 Pitch IA" in df_g.columns:
-        _col_config["🤖 Pitch IA"] = st.column_config.LinkColumn(display_text="🤖 Pitch IA")
+        _col_config["🤖 Pitch IA"] = st.column_config.LinkColumn(display_text=pitch_label)
     if "📸 Detalhes" in df_g.columns:
         _col_config["📸 Detalhes"] = st.column_config.LinkColumn(display_text="📸 Fotos + Mapa")
     if "📍 Street View" in df_g.columns:
@@ -813,9 +812,9 @@ st.title("🏠 ImobiFlow — Dashboard Imóveis DF")
 st.caption("📦 Fonte: Supabase PostgreSQL — `public.imoveis`")
 
 # ── Abas principais ───────────────────────────────────────────────────────────
-tab_mercado, tab_mapa, tab_opor, tab_meta = st.tabs([
+tab_mercado, tab_apresentacao, tab_opor, tab_meta = st.tabs([
     "📊 Mercado",
-    "🗺️ Mapa & Tabela",
+    "📄 Apresentação p/ Cliente",
     "🎯 Oportunidades",
     "📣 Campanhas",
 ])
@@ -1084,97 +1083,98 @@ with tab_mercado:
         chart_actions(fig, "boxplot_preco_quartos", _txt)
 
 # ════════════════════════════════════════════════════════════════════════════════
-# ABA 2 — MAPA & TABELA
-# Mapa no topo; clique em ponto filtra a tabela abaixo
+# ABA 2 — APRESENTAÇÃO P/ CLIENTE
+# Encontrar o imóvel certo (filtros da barra lateral = perfil do cliente) e abrir
+# a página ?imovel= para gerar pitch IA + PDF de apresentação
 # ════════════════════════════════════════════════════════════════════════════════
-with tab_mapa:
-    # Prepara df para o mapa preservando o índice original de dff
-    df_map = dff.dropna(subset=["lat", "lon"]).copy()
-    df_map = df_map[(df_map["lat"].between(-16.5, -15.4)) &
-                    (df_map["lon"].between(-48.5, -47.2))]
-    df_map["area_util_sz"] = df_map["area_util"].fillna(0).clip(lower=0)
-    # Guarda índice original para vincular clique → tabela
-    df_map = df_map.reset_index()          # coluna "index" = índice original do dff
+with tab_apresentacao:
+    st.subheader("📄 Apresentação para Cliente")
+    st.caption(
+        "Use os filtros da barra lateral como perfil do cliente (bairro, quartos, preço, área). "
+        "Escolha o imóvel e clique em **📄 Montar apresentação** para gerar o pitch e o PDF."
+    )
+    _tk_apres = _gerar_token()
+    df_lista = dff.copy()
 
-    if df_map.empty:
-        st.info("Nenhum imóvel com coordenadas nos filtros atuais.")
+    # Mediana de R$/m² de imóveis comparáveis (mesmo bairro + nº de quartos) e variação de cada um
+    _grupo = df_lista.groupby(["bairro", "quartos"])["preco_m2"]
+    df_lista["media_m2_bairro"] = _grupo.transform("median")
+    df_lista["var_vs_media_pct"] = (
+        (df_lista["preco_m2"] / df_lista["media_m2_bairro"] - 1) * 100
+    )
+    # Mais de 50% abaixo da mediana é erro de cadastro (preço/área), não oferta;
+    # grupos com menos de 5 imóveis não têm mediana confiável
+    df_lista.loc[(df_lista["var_vs_media_pct"] < -50) | (_grupo.transform("count") < 5),
+                 "var_vs_media_pct"] = None
+
+    c_busca, c_ordem, c_abaixo = st.columns([3, 2, 1.4])
+    busca = c_busca.text_input(
+        "🔎 Buscar", placeholder="Bairro, endereço, título ou descrição…",
+        key="imoveis_busca"
+    )
+    ordem = c_ordem.selectbox(
+        "Ordenar por",
+        ["Mais recentes", "Menor R$/m² vs. bairro", "Menor R$/m²",
+         "Menor preço", "Maior preço", "Maior área"],
+        key="imoveis_ordem"
+    )
+    so_abaixo = c_abaixo.checkbox("Só abaixo da média do bairro", key="imoveis_abaixo")
+
+    if busca:
+        _termo = busca.strip().lower()
+        _texto = (
+            df_lista[["bairro", "endereco", "titulo_vitrine", "descricao"]]
+            .fillna("").astype(str).agg(" ".join, axis=1).str.lower()
+        )
+        df_lista = df_lista[_texto.str.contains(_termo, regex=False)]
+    if so_abaixo:
+        df_lista = df_lista[df_lista["var_vs_media_pct"] < 0]
+
+    _ordens = {
+        "Mais recentes":          (pd.to_datetime(df_lista["data_cadastro"], errors="coerce"), False),
+        "Menor R$/m² vs. bairro": (df_lista["var_vs_media_pct"], True),
+        "Menor R$/m²":            (df_lista["preco_m2"], True),
+        "Menor preço":            (df_lista["preco"], True),
+        "Maior preço":            (df_lista["preco"], False),
+        "Maior área":             (df_lista["area_util"], False),
+    }
+    _chave, _asc = _ordens[ordem]
+    df_lista = df_lista.loc[_chave.sort_values(ascending=_asc, na_position="last").index]
+
+    st.markdown(f"**{len(df_lista):,} imóveis combinam com o perfil**".replace(",", "."))
+
+    if df_lista.empty:
+        st.info("Nenhum imóvel encontrado. Ajuste os filtros da barra lateral ou a busca.")
     else:
-        fig_map = px.scatter_map(
-            df_map, lat="lat", lon="lon",
-            color="preco", size="area_util_sz", size_max=20,
-            hover_data=["bairro", "preco", "area_util", "quartos", "preco_m2", "endereco"],
-            custom_data=["index"],          # ← índice original → usado no filtro da tabela
-            color_continuous_scale="RdYlGn_r",
-            zoom=10.5, height=500, map_style="carto-positron",
-            labels={"preco": "Preço (R$)"}
-        )
-        fig_map.update_layout(margin={"r": 0, "t": 0, "l": 0, "b": 0})
+        # ── Destaques: cards com botão direto para montar a apresentação ──
+        _destaques = df_lista[df_lista["codigo_anuncio"].notna()].head(6)
+        for _i in range(0, len(_destaques), 3):
+            for _col, (_, _r) in zip(st.columns(3), _destaques.iloc[_i:_i + 3].iterrows()):
+                with _col.container(border=True):
+                    st.markdown(f"**{_r.get('titulo_vitrine') or 'Imóvel'}**")
+                    st.caption(f"📍 {_r.get('bairro') or '—'}")
+                    st.markdown(
+                        f"💰 **{fmt_moeda(_r['preco'])}**  \n"
+                        f"📐 {fmt_area(_r['area_util'])} · 🛏️ {fmt_int(_r['quartos'])} quartos  \n"
+                        f"🏷️ {fmt_moeda(_r['preco_m2'])}/m²"
+                    )
+                    _var = _r.get("var_vs_media_pct")
+                    if pd.notna(_var) and _var < 0:
+                        st.success(f"📉 {abs(_var):.0f}% abaixo de similares no bairro")
+                    st.link_button(
+                        "📄 Montar apresentação",
+                        f"https://imobiflow.streamlit.app/?imovel={_r['codigo_anuncio']}&token={_tk_apres}",
+                        use_container_width=True, type="primary",
+                    )
 
-        # Contador de limpeza: incrementar muda a key do gráfico → reseta seleção
-        if "mapa_clear" not in st.session_state:
-            st.session_state.mapa_clear = 0
-
-        # on_select="rerun" → re-executa o app quando o usuário clica em um ponto
-        # key dinâmica → quando mapa_clear incrementa, widget é recriado sem seleção
-        mapa_sel = st.plotly_chart(
-            fig_map, use_container_width=True,
-            key=f"fig_mapa_{st.session_state.mapa_clear}",
-            config=MAP_CONFIG, on_select="rerun", selection_mode="points"
-        )
-
-        _txt_mapa = (
-            f"🗺️ *Mapa de Imóveis — {filtro_label}*\n\n"
-            f"📍 {len(df_map)} imóveis mapeados no Distrito Federal\n"
-            f"💰 Preço médio: R$ {_br(df_map['preco'].mean())}\n"
-            f"🏷️ R$/m² médio: R$ {_br(df_map['preco_m2'].mean())}\n\n"
-            f"📊 ImobiFlow Dashboard"
-        )
-        chart_actions(fig_map, "mapa_imoveis", _txt_mapa,
-                      "📲 Compartilhar dados do mapa no WhatsApp")
-
-        # ── Tabela vinculada ao clique no mapa ────────────────────────────────
+        # ── Lista completa ──
         st.divider()
-
-        # Detecta se há pontos selecionados no mapa
-        _sel_pts = (mapa_sel.selection.points
-                    if mapa_sel and hasattr(mapa_sel, "selection")
-                       and mapa_sel.selection and mapa_sel.selection.points
-                    else [])
-
-        if _sel_pts:
-            _orig_idx = [int(p["customdata"][0]) for p in _sel_pts
-                         if p.get("customdata")]
-            df_tabela = dff.loc[_orig_idx] if _orig_idx else dff
-            _col_lbl, _col_btn = st.columns([3, 1])
-            _col_lbl.markdown(
-                f"**📍 {len(_sel_pts)} imóvel(is) selecionado(s) no mapa**"
-            )
-            with _col_btn:
-                if st.button("✖ Limpar seleção", use_container_width=True):
-                    st.session_state.mapa_clear += 1  # nova key → widget recriado sem seleção
-                    st.rerun()
-        else:
-            df_tabela = dff
-            st.subheader(f"📋 Todos os imóveis ({len(dff):,})")
-
-        montar_grid(df_tabela, key_prefix="mapa_tab",
+        st.markdown("**📋 Todos os imóveis do perfil**")
+        montar_grid(df_lista, key_prefix="apresentacao_tab",
                     cols_base=["bairro", "preco", "area_util", "preco_m2",
+                               "media_m2_bairro", "var_vs_media_pct",
                                "quartos", "banheiros", "endereco", "corretor", "url"],
-                    altura=460, show_pitch=True)
-
-        # WhatsApp melhores ofertas da seleção atual
-        _melhores = df_tabela.dropna(subset=["preco_m2", "url"]).sort_values("preco_m2").head(5)
-        if not _melhores.empty:
-            _linhas = "\n".join(
-                f"{i+1}. {r['bairro']} | {int(r['quartos']) if pd.notna(r['quartos']) else '?'}q "
-                f"| R$ {_br(r['preco'])} | R$/m² {_br(r['preco_m2'])}\n   🔗 {r['url']}"
-                for i, (_, r) in enumerate(_melhores.iterrows())
-            )
-            wa_button(
-                f"🏆 *Melhores Ofertas por R$/m² — {filtro_label}*\n\n"
-                f"{_linhas}\n\n📊 ImobiFlow Dashboard",
-                "📲 Compartilhar melhores ofertas no WhatsApp"
-            )
+                    altura=480, show_pitch=True, pitch_label="📄 Apresentação")
 
 # ════════════════════════════════════════════════════════════════════════════════
 # ABA 3 — OPORTUNIDADES  (sub-abas: Captação | Venda)
