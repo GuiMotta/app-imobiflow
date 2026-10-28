@@ -478,7 +478,7 @@ Diferenciais/Amenidades: {amenidades or 'N/I'}
                     st.rerun()
 
             _cols_foto = st.columns(3)
-            for i, foto_url in enumerate(_fotos_todas[:15]):
+            for i, foto_url in enumerate(_fotos_todas):
                 with _cols_foto[i % 3]:
                     _checked = st.checkbox(
                         f"Foto {i+1}",
@@ -685,8 +685,11 @@ if "captar" in _qp:
         _fotos_raw = _r.get("fotos_urls", "")
         _fotos = [f.strip() for f in str(_fotos_raw).split("|") if f.strip() and f.strip().startswith("http")] if pd.notna(_fotos_raw) else []
         if _fotos:
-            for foto_url in _fotos[:12]:
-                st.image(foto_url, use_container_width=True)
+            st.caption(f"{len(_fotos)} foto(s)")
+            _grade = st.columns(2)
+            for i, foto_url in enumerate(_fotos):
+                with _grade[i % 2]:
+                    st.image(foto_url, use_container_width=True)
         else:
             st.info("Sem fotos disponíveis para este imóvel.")
             if pd.notna(_r.get("url")):
