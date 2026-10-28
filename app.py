@@ -262,8 +262,9 @@ def carregar_dados():
             df[c] = pd.to_numeric(df[c], errors="coerce")
 
     # Remover outliers absurdos (erros de cadastro no site)
-    # Limites baseados no percentil 99 dos dados reais
-    df = df[(df["preco"] > 0) & (df["preco"] <= 20_000_000)]
+    # Casas de alto padrão no Lago Sul chegam a ~R$ 75 mi; acima de R$ 100 mi é erro
+    # (ex.: apto de 48 m² a R$ 810 mi). O corte antigo de R$ 20 mi escondia 166 imóveis reais.
+    df = df[(df["preco"] > 0) & (df["preco"] <= 100_000_000)]
     df.loc[df["area_util"] > 20_000, "area_util"] = None
     df.loc[df["area_util"] <= 0, "area_util"] = None
     df["preco_m2"] = df.apply(
