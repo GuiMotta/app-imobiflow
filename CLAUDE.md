@@ -1,5 +1,4 @@
 # ImobiFlow — App Streamlit
-
 ## O que é
 Dashboard interno para Viviane Tolentino: análise de mercado, captação de imóveis e geração de pitch IA + PDF para clientes.
 URL: https://imobiflow.streamlit.app
