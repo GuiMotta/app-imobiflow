@@ -39,3 +39,6 @@ Supabase PostgreSQL → tabela `public.imoveis` (alimentada pelo pipeline Databr
 ## Padrões
 - Valores no formato BR: R$ 1.099.758
 - Arquivo principal: `app.py`
+
+
+
