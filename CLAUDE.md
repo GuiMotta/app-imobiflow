@@ -3,7 +3,6 @@
 Dashboard interno para Viviane Tolentino: análise de mercado, captação de imóveis e geração de pitch IA + PDF para clientes.
 URL: https://imobiflow.streamlit.app
 
-
 ## Fonte de dados
 Supabase PostgreSQL → tabela `public.imoveis` (alimentada pelo pipeline Databricks)
 
